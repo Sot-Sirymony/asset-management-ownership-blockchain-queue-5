@@ -77,6 +77,13 @@ class DepartmentControllerTest {
     }
 
     @Test
+    void dashboard_requiresAuth() throws Exception {
+        mockMvc.perform(get("/api/v1/admin/dashboard"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    /** Dashboard uses blockchain (QueryAllReportIssues) for report count. */
+    @Test
     void dashboard_asAdmin_returnsOk() throws Exception {
         when(departmentService.getDashboard()).thenReturn(new Dashboard());
 

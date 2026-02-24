@@ -73,59 +73,54 @@ const reportIssueColumns = [
 ];
 
 export default function DashboardClient(userId) {
-    const [assetRequest, setAssetRequest] = useState([])
-    const [report, setReport] = useState([])
-    const [dashboardCount, setDashboardCount] = useState(null)
+    const [assetRequest, setAssetRequest] = useState([]);
+    const [report, setReport] = useState([]);
+    const [dashboardCount, setDashboardCount] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
     const { data: session } = useSession();
     const token = session?.accessToken;
-    const fetchDepartments = async () => {
-        try {
-            if (token) {
-                const allAssetRequest = await getAllAssetRequest(token);
-                const transformedData = allAssetRequest.map((item, index) => ({
-                    ...item, 
-                    index: index + 1, 
-                }));
-                setAssetRequest(transformedData);
-
-            } else {
-                console.warn("No token found");
-            }
-        } catch (error) {
-            console.error("Error fetching departments:", error);
-        }
-    };
-
-    const fetchDashboard = async () => {
-        try {
-            if (token) {
-                const allCountDashboard = await getDashboardCount(token);
-                setDashboardCount(allCountDashboard);
-            } else {
-                console.warn("No token found for dashboard");
-            }
-        } catch (error) {
-            console.error("Error fetching dashboard:", error);
-            setDashboardCount(null);
-        }
-    }
-
-    const fetchReport = async () => {
-        const allReport = await getAllReport(token)
-        const transformedData = allReport.map((item, index) => ({
-            ...item, 
-            index: index + 1, 
-        }));
-        setReport(transformedData)
-    }
 
     useEffect(() => {
-        fetchDepartments();
-        fetchDashboard()
-        fetchReport()
+        if (!token) {
+            setLoading(false);
+            return;
+        }
+        const loadDashboardData = async () => {
+            setLoading(true);
+            setError(null);
+            try {
+                const [assetRequestRes, countRes, reportRes] = await Promise.all([
+                    getAllAssetRequest(token),
+                    getDashboardCount(token),
+                    getAllReport(token),
+                ]);
+                const assetRequestData = Array.isArray(assetRequestRes)
+                    ? assetRequestRes.map((item, index) => ({ ...item, index: index + 1 }))
+                    : [];
+                const reportData = Array.isArray(reportRes)
+                    ? reportRes.map((item, index) => ({ ...item, index: index + 1 }))
+                    : [];
+                setAssetRequest(assetRequestData);
+                setDashboardCount(countRes ?? null);
+                setReport(reportData);
+            } catch (err) {
+                console.error("Error loading dashboard:", err);
+                setError(err?.message ?? "Failed to load dashboard");
+                setDashboardCount(null);
+            } finally {
+                setLoading(false);
+            }
+        };
+        loadDashboardData();
     }, [token]);
     return (
         <div data-testid="dashboard-content">
+        {error && (
+            <div className="px-[20px] py-2 text-red-600 text-sm" role="alert">
+                {error}
+            </div>
+        )}
         <List
             title={<span style={{ fontSize: '27px', color: '#151D48', fontWeight: '600' }}>Dashboard</span>}
             canCreate={false}
@@ -142,7 +137,7 @@ export default function DashboardClient(userId) {
                             <div className="flex flex-col ">
                                 <span className="uppercase text-[12px] font-medium text-[#626C70]">Total Users</span>
                                 <span className="block text-[20px] font-semibold">                        
-                                    {dashboardCount !== null && dashboardCount !== undefined ? dashboardCount.totalUser : "Loading..."}
+                                    {loading ? "Loading..." : (dashboardCount != null ? dashboardCount.totalUser : "—")}
                                 </span>
                             </div>
                             <div className="flex items-start gap-2">
@@ -158,7 +153,7 @@ export default function DashboardClient(userId) {
                             <div className="flex flex-col">
                                 <span className="uppercase text-[12px] font-medium text-[#626C70]">Total Asset Request</span>
                                 <span className="block text-[20px] font-semibold">
-                                    {dashboardCount !== null && dashboardCount !== undefined ? dashboardCount.totalAssetRequest : "Loading..."}
+                                    {loading ? "Loading..." : (dashboardCount != null ? dashboardCount.totalAssetRequest : "—")}
                                 </span>
                             </div>
                             <div className="flex items-start gap-2">
@@ -173,7 +168,7 @@ export default function DashboardClient(userId) {
                             <div className="flex flex-col">
                                 <span className="uppercase text-[12px] font-medium text-[#626C70]">Total Report Issue</span>
                                 <span className="block text-[20px] font-semibold">
-                                {dashboardCount !== null && dashboardCount !== undefined ? dashboardCount.totalReportIssue : "Loading..."}
+                                {loading ? "Loading..." : (dashboardCount != null ? dashboardCount.totalReportIssue : "—")}
                                 </span>
                             </div>
                             <div className="flex items-start gap-2">
@@ -188,7 +183,7 @@ export default function DashboardClient(userId) {
                             <div className="flex flex-col">
                                 <span className="uppercase text-[12px] font-medium text-[#626C70]">Total Department</span>
                                 <span className="block text-[20px] font-semibold">
-                                    {dashboardCount !== null && dashboardCount !== undefined ? dashboardCount.totalDepartment : "Loading..."}
+                                    {loading ? "Loading..." : (dashboardCount != null ? dashboardCount.totalDepartment : "—")}
                                 </span>
                             </div>
                             <div className="flex items-start gap-2">

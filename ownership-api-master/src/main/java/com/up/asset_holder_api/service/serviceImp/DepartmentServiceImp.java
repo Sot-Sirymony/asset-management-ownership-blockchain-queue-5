@@ -3,6 +3,7 @@ package com.up.asset_holder_api.service.serviceImp;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.up.asset_holder_api.exception.NotFoundException;
+import com.up.asset_holder_api.gateway.FabricGatewayCache;
 import com.up.asset_holder_api.helper.GatewayHelperV1;
 import com.up.asset_holder_api.model.entity.Dashboard;
 import com.up.asset_holder_api.model.entity.Department;
@@ -39,6 +40,7 @@ public class DepartmentServiceImp implements DepartmentService {
 
     private final DepartmentRepository departmentRepository;
     private final UserRepository userRepository;
+    private final FabricGatewayCache gatewayCache;
 
     /**
      * Retrieves all departments with pagination.
@@ -78,6 +80,8 @@ public class DepartmentServiceImp implements DepartmentService {
     }
 
     @Override
+    @Cacheable(cacheNames = "dashboardCounts", cacheManager = "blockchainCacheManager",
+            key = "'dashboard_' + T(com.up.asset_holder_api.utils.GetCurrentUser).currentId()")
     public Dashboard getDashboard() {
         Integer userId = GetCurrentUser.currentId();
         UserRequestResponse user = userRepository.findUserById(userId);
@@ -88,18 +92,15 @@ public class DepartmentServiceImp implements DepartmentService {
 
         int reportIssueCount = 0;
 
-        try (Gateway gateway = GatewayHelperV1.connect(user.getUsername())) {
+        try {
+            Gateway gateway = gatewayCache.getOrCreate(user.getUsername());
             Network network = GatewayHelperV1.getNetwork(gateway);
             Contract contract = network.getContract(CHAINCODE);
-
-            // read-only
             byte[] result = contract.evaluateTransaction("QueryAllReportIssues");
             JsonNode issues = MAPPER.readTree(new String(result, StandardCharsets.UTF_8));
-
             if (issues != null && issues.isArray()) {
                 reportIssueCount = issues.size();
             }
-
         } catch (Exception e) {
             log.error("Failed to retrieve report issues count for dashboard", e);
         }

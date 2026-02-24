@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.up.asset_holder_api.exception.NotFoundException;
+import com.up.asset_holder_api.gateway.FabricGatewayCache;
 import com.up.asset_holder_api.helper.GatewayHelperV1;
 import com.up.asset_holder_api.model.entity.ReportIssue;
 import com.up.asset_holder_api.model.entity.User;
@@ -18,6 +19,8 @@ import org.hyperledger.fabric.gateway.Contract;
 import org.hyperledger.fabric.gateway.ContractException;
 import org.hyperledger.fabric.gateway.Gateway;
 import org.hyperledger.fabric.gateway.Network;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
@@ -27,53 +30,62 @@ import java.nio.charset.StandardCharsets;
 @AllArgsConstructor
 public class ReportIssueServiceImp implements ReportIssueService {
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final String CHAINCODE = System.getenv().getOrDefault("FABRIC_CHAINCODE", "basic");
+
     private final UserRepository userRepository;
+    private final FabricGatewayCache gatewayCache;
     private static int i = 1;
 
+    private Contract fabricContract(Gateway gateway) {
+        Network network = GatewayHelperV1.getNetwork(gateway);
+        return network.getContract(CHAINCODE);
+    }
+
     @Override
+    @CacheEvict(cacheNames = {"allIssuesByUser", "issueById", "dashboardCounts"}, allEntries = true, cacheManager = "blockchainCacheManager")
     public Boolean createIssue(ReportIssue reportIssue) {
         Integer userId = GetCurrentUser.currentId();
         UserRequestResponse user = userRepository.findUserById(userId);
 
         reportIssue.setReportId("report00"+i);
         i++;
-        try (Gateway gateway = GatewayHelperV1.connect(user.getUsername())) {
-            Network network = gateway.getNetwork("channel-org");
-            Contract contract = network.getContract("basic");
-            byte[] result = contract.submitTransaction("QueryAllAssets");
+        try {
+            return gatewayCache.runWithWriteLock(user.getUsername(), gateway -> {
+                Contract contract = fabricContract(gateway);
+                byte[] result = contract.evaluateTransaction("QueryAllAssets");
 
-            String assetJson = new String(result, StandardCharsets.UTF_8);
-            JsonNode assetNode = MAPPER.readTree(assetJson);
-            boolean assetFound = false;
-            if (assetNode.isArray()) {
-                for (JsonNode asset : assetNode) {
-                    String assetName = asset.get("asset_name").asText();
-                    if (assetName.equals(reportIssue.getAssetName())) {
-                        String assetId = asset.get("asset_id").asText();
-                        reportIssue.setAssetId(assetId);
-                        assetFound = true;
-                        break;
+                String assetJson = new String(result, StandardCharsets.UTF_8);
+                JsonNode assetNode = MAPPER.readTree(assetJson);
+                boolean assetFound = false;
+                if (assetNode.isArray()) {
+                    for (JsonNode asset : assetNode) {
+                        String assetName = asset.get("asset_name").asText();
+                        if (assetName.equals(reportIssue.getAssetName())) {
+                            String assetId = asset.get("asset_id").asText();
+                            reportIssue.setAssetId(assetId);
+                            assetFound = true;
+                            break;
+                        }
                     }
                 }
-            }
 
-            if (!assetFound) {
-                log.warn("No matching asset name found for report issue: {}", reportIssue.getAssetName());
-                throw new NotFoundException("No matching asset name found.");
-            }
+                if (!assetFound) {
+                    log.warn("No matching asset name found for report issue: {}", reportIssue.getAssetName());
+                    throw new NotFoundException("No matching asset name found.");
+                }
 
-
-            contract.submitTransaction("CreateReportIssue",
-                    reportIssue.getReportId(),
-                    reportIssue.getAssetId().toString(),
-                    reportIssue.getAssetName(),
-                    reportIssue.getProblem(),
-                    reportIssue.getAttachment(),
-                    userId.toString(),
-                    user.getUsername()
-            );
-            log.info("Successfully created report issue: {}", reportIssue.getReportId());
-            return true;
+                contract.submitTransaction("CreateReportIssue",
+                        reportIssue.getReportId(),
+                        reportIssue.getAssetId().toString(),
+                        reportIssue.getAssetName(),
+                        reportIssue.getProblem(),
+                        reportIssue.getAttachment(),
+                        userId.toString(),
+                        user.getUsername()
+                );
+                log.info("Successfully created report issue: {}", reportIssue.getReportId());
+                return true;
+            });
         } catch (ContractException e) {
             log.error("Failed to create report issue: {}", e.getMessage());
             throw new NotFoundException("Failed to create report issue: " + e.getMessage());
@@ -84,17 +96,18 @@ public class ReportIssueServiceImp implements ReportIssueService {
     }
 
     @Override
+    @CacheEvict(cacheNames = {"allIssuesByUser", "issueById", "dashboardCounts"}, allEntries = true, cacheManager = "blockchainCacheManager")
     public Boolean deleteIssue(String id) {
         Integer userId = GetCurrentUser.currentId();
         UserRequestResponse user = userRepository.findUserById(userId);
-        try (Gateway gateway = GatewayHelperV1.connect(user.getUsername())) {
-            Network network = gateway.getNetwork("channel-org");
-            Contract contract = network.getContract("basic");
-
-            contract.submitTransaction("QueryReportIssue", id);
-            contract.submitTransaction("DeleteReportIssue", id);
-            log.info("Successfully deleted report issue: {}", id);
-            return true;
+        try {
+            return gatewayCache.runWithWriteLock(user.getUsername(), gateway -> {
+                Contract contract = fabricContract(gateway);
+                contract.evaluateTransaction("QueryReportIssue", id);
+                contract.submitTransaction("DeleteReportIssue", id);
+                log.info("Successfully deleted report issue: {}", id);
+                return true;
+            });
         } catch (ContractException e) {
             log.error("Failed to delete report issue: {} - {}", id, e.getMessage());
             throw new NotFoundException("Failed to delete report issue: " + e.getMessage());
@@ -105,23 +118,24 @@ public class ReportIssueServiceImp implements ReportIssueService {
     }
 
     @Override
+    @CacheEvict(cacheNames = {"allIssuesByUser", "issueById", "dashboardCounts"}, allEntries = true, cacheManager = "blockchainCacheManager")
     public Boolean updateIssue(String id, ReportIssue reportIssue) {
         Integer userId = GetCurrentUser.currentId();
         UserRequestResponse user = userRepository.findUserById(userId);
-        try (Gateway gateway = GatewayHelperV1.connect(user.getUsername())) {
-            Network network = gateway.getNetwork("channel-org");
-            Contract contract = network.getContract("basic");
-            contract.submitTransaction("UpdateReportIssue",
-                    id,
-                    reportIssue.getAssetName(),
-                    reportIssue.getProblem(),
-                    reportIssue.getAttachment(),
-                    userId.toString(),
-                    user.getUsername()
-            );
-
-            log.info("Successfully updated report issue: {}", id);
-            return true;
+        try {
+            return gatewayCache.runWithWriteLock(user.getUsername(), gateway -> {
+                Contract contract = fabricContract(gateway);
+                contract.submitTransaction("UpdateReportIssue",
+                        id,
+                        reportIssue.getAssetName(),
+                        reportIssue.getProblem(),
+                        reportIssue.getAttachment(),
+                        userId.toString(),
+                        user.getUsername()
+                );
+                log.info("Successfully updated report issue: {}", id);
+                return true;
+            });
         } catch (ContractException e) {
             log.error("Failed to update report issue: {} - {}", id, e.getMessage());
             throw new NotFoundException("Failed to update report issue: " + e.getMessage());
@@ -132,15 +146,15 @@ public class ReportIssueServiceImp implements ReportIssueService {
     }
 
     @Override
+    @Cacheable(cacheNames = "issueById", cacheManager = "blockchainCacheManager",
+            key = "'issue_' + T(com.up.asset_holder_api.utils.GetCurrentUser).currentId() + '_' + #id")
     public JsonNode getIssueById(String id) {
         Integer userId = GetCurrentUser.currentId();
         UserRequestResponse userResponse = userRepository.findUserById(userId);
-        try (Gateway gateway = GatewayHelperV1.connect(userResponse.getUsername())) {
-
-            Network network = gateway.getNetwork("channel-org");
-            Contract contract = network.getContract("basic");
-
-            byte[] result = contract.submitTransaction("QueryReportIssue", id);
+        try {
+            Gateway gateway = gatewayCache.getOrCreate(userResponse.getUsername());
+            Contract contract = fabricContract(gateway);
+            byte[] result = contract.evaluateTransaction("QueryReportIssue", id);
 
             String assetJson = new String(result, StandardCharsets.UTF_8);
             JsonNode assetNode = MAPPER.readTree(assetJson);
@@ -183,15 +197,15 @@ public class ReportIssueServiceImp implements ReportIssueService {
     }
 
     @Override
+    @Cacheable(cacheNames = "allIssuesByUser", cacheManager = "blockchainCacheManager",
+            key = "'allIssues_' + T(com.up.asset_holder_api.utils.GetCurrentUser).currentId()")
     public JsonNode getAllIssue() {
         Integer userId = GetCurrentUser.currentId();
         UserRequestResponse userResponse = userRepository.findUserById(userId);
-        try (Gateway gateway = GatewayHelperV1.connect(userResponse.getUsername())) {
-
-            Network network = gateway.getNetwork("channel-org");
-            Contract contract = network.getContract("basic");
-
-            byte[] result = contract.submitTransaction("QueryAllReportIssues");
+        try {
+            Gateway gateway = gatewayCache.getOrCreate(userResponse.getUsername());
+            Contract contract = fabricContract(gateway);
+            byte[] result = contract.evaluateTransaction("QueryAllReportIssues");
 
             String assetJson = new String(result, StandardCharsets.UTF_8);
             JsonNode assetNode = MAPPER.readTree(assetJson);

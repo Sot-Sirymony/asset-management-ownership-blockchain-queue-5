@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.up.asset_holder_api.exception.NotFoundException;
+import com.up.asset_holder_api.gateway.FabricGatewayCache;
 import com.up.asset_holder_api.helper.GatewayHelperV1;
 import com.up.asset_holder_api.model.entity.Asset;
 import com.up.asset_holder_api.model.entity.User;
@@ -21,6 +22,8 @@ import org.hyperledger.fabric.gateway.Contract;
 import org.hyperledger.fabric.gateway.ContractException;
 import org.hyperledger.fabric.gateway.Gateway;
 import org.hyperledger.fabric.gateway.Network;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.io.BufferedReader;
@@ -57,6 +60,7 @@ public class AssetServiceImp implements AssetService {
 
     private final UserRepository userRepository;
     private final NotificationService notificationService;
+    private final FabricGatewayCache gatewayCache;
 
     // ---- Fabric helpers: always use GatewayHelperV1 (channel from env) ----
     private Network fabricNetwork(Gateway gateway) {
@@ -74,25 +78,22 @@ public class AssetServiceImp implements AssetService {
 
     /**
      * Retrieves an asset by its ID from the blockchain.
-     *
-     * @param id The asset ID to query
-     * @return JSON node containing asset details
-     * @throws NotFoundException if asset is not found
+     * Results are cached briefly to reduce Fabric read load.
      */
     @Override
+    @Cacheable(cacheNames = "assetById", cacheManager = "blockchainCacheManager",
+            key = "'asset_' + T(com.up.asset_holder_api.utils.GetCurrentUser).currentId() + '_' + #id")
     public JsonNode getAssetById(String id) {
         log.debug("Fetching asset with ID: {}", id);
         UserRequestResponse user = currentUserResponse();
 
-        try (Gateway gateway = GatewayHelperV1.connect(user.getUsername())) {
+        try {
+            Gateway gateway = gatewayCache.getOrCreate(user.getUsername());
             Contract contract = fabricContract(gateway);
-
-            // QUERY => evaluateTransaction
             byte[] result = contract.evaluateTransaction("QueryAsset", id);
             JsonNode asset = MAPPER.readTree(new String(result, StandardCharsets.UTF_8));
             log.info("Successfully retrieved asset: {}", id);
             return asset;
-
         } catch (ContractException e) {
             log.error("Asset not found: {} - {}", id, e.getMessage());
             throw new NotFoundException("Asset not found: " + id + " (" + e.getMessage() + ")");
@@ -111,54 +112,51 @@ public class AssetServiceImp implements AssetService {
      * @throws NotFoundException if creation fails
      */
     @Override
+    @CacheEvict(cacheNames = {"assetById", "allAssetsByUser"}, allEntries = true, cacheManager = "blockchainCacheManager")
     public JsonNode createAsset(Asset asset) {
         log.debug("Creating new asset: {}", asset.getAssetName());
         UserRequestResponse user = currentUserResponse();
 
-        try (Gateway gateway = GatewayHelperV1.connect(user.getUsername())) {
-            Contract contract = fabricContract(gateway);
+        try {
+            return gatewayCache.runWithWriteLock(user.getUsername(), gateway -> {
+                Contract contract = fabricContract(gateway);
+                String assetId = AssetIdGenerator.generateAssetId();
+                asset.setAssetId(assetId);
+                asset.setUsername(String.valueOf(asset.getAssignTo()));
+                log.debug("Generated asset ID: {} for asset: {}", assetId, asset.getAssetName());
 
-            // Generate thread-safe unique asset ID
-            String assetId = AssetIdGenerator.generateAssetId();
-            asset.setAssetId(assetId);
-            asset.setUsername(String.valueOf(asset.getAssignTo()));
-            log.debug("Generated asset ID: {} for asset: {}", assetId, asset.getAssetName());
+                String unit = asset.getUnit() != null ? asset.getUnit() : "";
+                String condition = asset.getCondition() != null ? asset.getCondition() : "";
+                String attachment = asset.getAttachment() != null ? asset.getAttachment() : "";
+                String depName = asset.getDepName() != null ? asset.getDepName() : "default";
+                contract.submitTransaction(
+                        "CreateAsset",
+                        asset.getAssetId(),
+                        asset.getAssetName(),
+                        unit,
+                        condition,
+                        attachment,
+                        String.valueOf(asset.getAssignTo()),
+                        asset.getUsername(),
+                        depName,
+                        String.valueOf(asset.getQty())
+                );
 
-            // WRITE => submitTransaction (chaincode expects non-null strings)
-            String unit = asset.getUnit() != null ? asset.getUnit() : "";
-            String condition = asset.getCondition() != null ? asset.getCondition() : "";
-            String attachment = asset.getAttachment() != null ? asset.getAttachment() : "";
-            String depName = asset.getDepName() != null ? asset.getDepName() : "default";
-            contract.submitTransaction(
-                    "CreateAsset",
-                    asset.getAssetId(),
-                    asset.getAssetName(),
-                    unit,
-                    condition,
-                    attachment,
-                    String.valueOf(asset.getAssignTo()),
-                    asset.getUsername(),
-                    depName,
-                    String.valueOf(asset.getQty())
-            );
+                byte[] result = contract.evaluateTransaction("QueryAsset", asset.getAssetId());
+                JsonNode createdAsset = MAPPER.readTree(new String(result, StandardCharsets.UTF_8));
 
-            // QUERY after create
-            byte[] result = contract.evaluateTransaction("QueryAsset", asset.getAssetId());
-            JsonNode createdAsset = MAPPER.readTree(new String(result, StandardCharsets.UTF_8));
-            
-            // Send notification to assigned user
-            try {
-                UserRequestResponse assignedUser = userRepository.findUserById(asset.getAssignTo());
-                if (assignedUser != null) {
-                    notificationService.sendAssetCreatedNotification(assetId, asset.getAssetName(), assignedUser);
+                try {
+                    UserRequestResponse assignedUser = userRepository.findUserById(asset.getAssignTo());
+                    if (assignedUser != null) {
+                        notificationService.sendAssetCreatedNotification(assetId, asset.getAssetName(), assignedUser);
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed to send creation notification, but asset created successfully: {}", e.getMessage());
                 }
-            } catch (Exception e) {
-                log.warn("Failed to send creation notification, but asset created successfully: {}", e.getMessage());
-            }
-            
-            log.info("Successfully created asset: {} with ID: {}", asset.getAssetName(), assetId);
-            return createdAsset;
 
+                log.info("Successfully created asset: {} with ID: {}", asset.getAssetName(), assetId);
+                return createdAsset;
+            });
         } catch (ContractException e) {
             log.error("Failed to create asset on blockchain: {} - {}", asset.getAssetName(), e.getMessage());
             throw new NotFoundException("Failed to create asset: " + e.getMessage());
@@ -177,37 +175,36 @@ public class AssetServiceImp implements AssetService {
      * @throws NotFoundException if asset is not found or update fails
      */
     @Override
+    @CacheEvict(cacheNames = {"assetById", "allAssetsByUser"}, allEntries = true, cacheManager = "blockchainCacheManager")
     public JsonNode updateAsset(String id, Asset asset) {
         log.debug("Updating asset with ID: {}", id);
         UserRequestResponse user = currentUserResponse();
 
-        try (Gateway gateway = GatewayHelperV1.connect(user.getUsername())) {
-            Contract contract = fabricContract(gateway);
-
-            asset.setUsername(String.valueOf(asset.getAssignTo()));
-
-            String unit = asset.getUnit() != null ? asset.getUnit() : "";
-            String condition = asset.getCondition() != null ? asset.getCondition() : "";
-            String attachment = asset.getAttachment() != null ? asset.getAttachment() : "";
-            String depName = asset.getDepName() != null ? asset.getDepName() : "default";
-            contract.submitTransaction(
-                    "UpdateAsset",
-                    id,
-                    asset.getAssetName(),
-                    unit,
-                    condition,
-                    attachment,
-                    String.valueOf(asset.getAssignTo()),
-                    asset.getUsername(),
-                    depName,
-                    String.valueOf(asset.getQty())
-            );
-
-            byte[] result = contract.evaluateTransaction("QueryAsset", id);
-            JsonNode updatedAsset = MAPPER.readTree(new String(result, StandardCharsets.UTF_8));
-            log.info("Successfully updated asset: {}", id);
-            return updatedAsset;
-
+        try {
+            return gatewayCache.runWithWriteLock(user.getUsername(), gateway -> {
+                Contract contract = fabricContract(gateway);
+                asset.setUsername(String.valueOf(asset.getAssignTo()));
+                String unit = asset.getUnit() != null ? asset.getUnit() : "";
+                String condition = asset.getCondition() != null ? asset.getCondition() : "";
+                String attachment = asset.getAttachment() != null ? asset.getAttachment() : "";
+                String depName = asset.getDepName() != null ? asset.getDepName() : "default";
+                contract.submitTransaction(
+                        "UpdateAsset",
+                        id,
+                        asset.getAssetName(),
+                        unit,
+                        condition,
+                        attachment,
+                        String.valueOf(asset.getAssignTo()),
+                        asset.getUsername(),
+                        depName,
+                        String.valueOf(asset.getQty())
+                );
+                byte[] result = contract.evaluateTransaction("QueryAsset", id);
+                JsonNode updatedAsset = MAPPER.readTree(new String(result, StandardCharsets.UTF_8));
+                log.info("Successfully updated asset: {}", id);
+                return updatedAsset;
+            });
         } catch (ContractException e) {
             log.error("Asset not found for update: {} - {}", id, e.getMessage());
             throw new NotFoundException("Asset not found: " + id + " (" + e.getMessage() + ")");
@@ -225,20 +222,19 @@ public class AssetServiceImp implements AssetService {
      * @throws NotFoundException if asset is not found or deletion fails
      */
     @Override
+    @CacheEvict(cacheNames = {"assetById", "allAssetsByUser"}, allEntries = true, cacheManager = "blockchainCacheManager")
     public Boolean deleteAsset(String id) {
         log.debug("Deleting asset with ID: {}", id);
         UserRequestResponse user = currentUserResponse();
 
-        try (Gateway gateway = GatewayHelperV1.connect(user.getUsername())) {
-            Contract contract = fabricContract(gateway);
-
-            // ensure exists
-            contract.evaluateTransaction("QueryAsset", id);
-
-            contract.submitTransaction("DeleteAsset", id);
-            log.info("Successfully deleted asset: {}", id);
-            return true;
-
+        try {
+            return gatewayCache.runWithWriteLock(user.getUsername(), gateway -> {
+                Contract contract = fabricContract(gateway);
+                contract.evaluateTransaction("QueryAsset", id);
+                contract.submitTransaction("DeleteAsset", id);
+                log.info("Successfully deleted asset: {}", id);
+                return true;
+            });
         } catch (ContractException e) {
             log.error("Asset not found for deletion: {} - {}", id, e.getMessage());
             throw new NotFoundException("Asset not found: " + id + " (" + e.getMessage() + ")");
@@ -249,15 +245,15 @@ public class AssetServiceImp implements AssetService {
     }
 
     @Override
+    @Cacheable(cacheNames = "allAssetsByUser", cacheManager = "blockchainCacheManager",
+            key = "'allAssets_' + T(com.up.asset_holder_api.utils.GetCurrentUser).currentId()")
     public JsonNode getAllAsset() {
         UserRequestResponse userResponse = currentUserResponse();
 
-        try (Gateway gateway = GatewayHelperV1.connect(userResponse.getUsername())) {
-
+        try {
+            Gateway gateway = gatewayCache.getOrCreate(userResponse.getUsername());
             Contract contract = fabricContract(gateway);
-
             ArrayNode assetsWithUserInfo = MAPPER.createArrayNode();
-
             UserRequestResponse currentUser = userRepository.findUserById(GetCurrentUser.currentId());
             User currentUserEntity = userRepository.findUserByUsername(currentUser.getUsername());
             boolean isAdmin = "ADMIN".equals(currentUserEntity.getRoles());
@@ -299,7 +295,6 @@ public class AssetServiceImp implements AssetService {
             }
 
             return assetsWithUserInfo;
-
         } catch (Exception e) {
             log.error("Failed to get all assets - {}", e.getMessage(), e);
             throw new NotFoundException("Failed to retrieve assets: " + e.getMessage());
@@ -316,57 +311,54 @@ public class AssetServiceImp implements AssetService {
      * @throws NotFoundException if asset is not found, user doesn't own asset, or transfer fails
      */
     @Override
+    @CacheEvict(cacheNames = {"assetById", "allAssetsByUser"}, allEntries = true, cacheManager = "blockchainCacheManager")
     public Boolean trasfterAsset(String id, AssetTrasferRequest req) {
         log.debug("Transferring asset: {} to new owner: {}", id, req.getNewAssignTo());
         UserRequestResponse user = currentUserResponse();
 
-        try (Gateway gateway = GatewayHelperV1.connect(user.getUsername())) {
-            Contract contract = fabricContract(gateway);
+        try {
+            return gatewayCache.runWithWriteLock(user.getUsername(), gateway -> {
+                Contract contract = fabricContract(gateway);
+                byte[] assetBytes = contract.evaluateTransaction("QueryAsset", id);
+                JsonNode asset = MAPPER.readTree(new String(assetBytes, StandardCharsets.UTF_8));
 
-            // Verify asset exists and get current owner
-            byte[] assetBytes = contract.evaluateTransaction("QueryAsset", id);
-            JsonNode asset = MAPPER.readTree(new String(assetBytes, StandardCharsets.UTF_8));
-            
-            // Verify ownership - only current owner or admin can transfer
-            User currentUserEntity = userRepository.findUserByUsername(user.getUsername());
-            boolean isAdmin = "ADMIN".equals(currentUserEntity.getRoles());
-            
-            if (!isAdmin && asset.has("assign_to")) {
-                int currentOwnerId = Integer.parseInt(asset.get("assign_to").asText());
-                if (currentOwnerId != user.getUserId()) {
-                    log.warn("User {} attempted to transfer asset {} owned by user {}", 
-                            user.getUserId(), id, currentOwnerId);
-                    throw new NotFoundException("You do not have permission to transfer this asset. Only the current owner can transfer it.");
+                User currentUserEntity = userRepository.findUserByUsername(user.getUsername());
+                boolean isAdmin = "ADMIN".equals(currentUserEntity.getRoles());
+
+                if (!isAdmin && asset.has("assign_to")) {
+                    int currentOwnerId = Integer.parseInt(asset.get("assign_to").asText());
+                    if (currentOwnerId != user.getUserId()) {
+                        log.warn("User {} attempted to transfer asset {} owned by user {}",
+                                user.getUserId(), id, currentOwnerId);
+                        throw new NotFoundException("You do not have permission to transfer this asset. Only the current owner can transfer it.");
+                    }
                 }
-            }
 
-            // Verify new owner exists
-            UserRequestResponse newOwner = userRepository.findUserById(req.getNewAssignTo());
-            if (newOwner == null) {
-                log.error("New owner not found: {}", req.getNewAssignTo());
-                throw new NotFoundException("New owner not found: " + req.getNewAssignTo());
-            }
+                UserRequestResponse newOwner = userRepository.findUserById(req.getNewAssignTo());
+                if (newOwner == null) {
+                    log.error("New owner not found: {}", req.getNewAssignTo());
+                    throw new NotFoundException("New owner not found: " + req.getNewAssignTo());
+                }
 
-            contract.submitTransaction("TransferAsset", id, String.valueOf(req.getNewAssignTo()));
-            
-            // Send notifications to both parties as per BRD requirement
-            try {
-                JsonNode assetNode = MAPPER.readTree(new String(assetBytes, StandardCharsets.UTF_8));
-                String assetName = assetNode.has("asset_name") ? assetNode.get("asset_name").asText() : "Unknown Asset";
-                notificationService.sendAssetTransferNotification(id, assetName, user, newOwner);
-            } catch (Exception e) {
-                log.warn("Failed to send transfer notification, but transfer succeeded: {}", e.getMessage());
-            }
-            
-            log.info("Successfully transferred asset: {} from user {} to user {}", 
-                    id, user.getUserId(), req.getNewAssignTo());
-            return true;
+                contract.submitTransaction("TransferAsset", id, String.valueOf(req.getNewAssignTo()));
 
+                try {
+                    JsonNode assetNode = MAPPER.readTree(new String(assetBytes, StandardCharsets.UTF_8));
+                    String assetName = assetNode.has("asset_name") ? assetNode.get("asset_name").asText() : "Unknown Asset";
+                    notificationService.sendAssetTransferNotification(id, assetName, user, newOwner);
+                } catch (Exception e) {
+                    log.warn("Failed to send transfer notification, but transfer succeeded: {}", e.getMessage());
+                }
+
+                log.info("Successfully transferred asset: {} from user {} to user {}",
+                        id, user.getUserId(), req.getNewAssignTo());
+                return true;
+            });
         } catch (ContractException e) {
             log.error("Asset not found for transfer: {} - {}", id, e.getMessage());
             throw new NotFoundException("Asset not found: " + id + " (" + e.getMessage() + ")");
         } catch (NotFoundException e) {
-            throw e; // Re-throw NotFoundException as-is
+            throw e;
         } catch (Exception e) {
             log.error("Failed to transfer asset: {} - {}", id, e.getMessage(), e);
             throw new NotFoundException("Failed to transfer asset: " + id + ". " + e.getMessage());
@@ -377,20 +369,17 @@ public class AssetServiceImp implements AssetService {
     public JsonNode getHistoryById(String id) {
         UserRequestResponse user = currentUserResponse();
 
-        try (Gateway gateway = GatewayHelperV1.connect(user.getUsername())) {
+        try {
+            Gateway gateway = gatewayCache.getOrCreate(user.getUsername());
             Contract contract = fabricContract(gateway);
-
-            // Verify asset exists first so we return 404 for non-existent id (GetAssetHistory may still return data)
             try {
                 contract.evaluateTransaction("QueryAsset", id);
             } catch (ContractException e) {
                 log.error("Asset not found for history: {} - {}", id, e.getMessage());
                 throw new NotFoundException("Asset not found: " + id + " (" + e.getMessage() + ")");
             }
-
             byte[] result = contract.evaluateTransaction("GetAssetHistory", id);
             return MAPPER.readTree(new String(result, StandardCharsets.UTF_8));
-
         } catch (NotFoundException e) {
             throw e;
         } catch (ContractException e) {
@@ -410,8 +399,8 @@ public class AssetServiceImp implements AssetService {
 
         UserRequestResponse userResponse = currentUserResponse();
 
-        try (Gateway gateway = GatewayHelperV1.connect(userResponse.getUsername())) {
-
+        try {
+            Gateway gateway = gatewayCache.getOrCreate(userResponse.getUsername());
             User currentUser = userRepository.findUserByUsername(userResponse.getUsername());
             boolean isAdmin = "ADMIN".equals(currentUser.getRoles());
 

@@ -5,7 +5,6 @@ import "@refinedev/antd/dist/reset.css"
 import "../styles/globals.css"
 import SessionProviderWrapper from "./providers/auth-provider/AuthProvider"
 import ClientWrapper from "./clientRoot"
-// import ClientWrapper from "./ClientWrapper"
 
 export const metadata = {
   title: "OWNERSHIP",
@@ -17,8 +16,8 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
-      <body className="test">
+    <html lang="en" suppressHydrationWarning>
+      <body className="test" suppressHydrationWarning>
         <SessionProviderWrapper>
           <Suspense>
             <RefineKbarProvider>

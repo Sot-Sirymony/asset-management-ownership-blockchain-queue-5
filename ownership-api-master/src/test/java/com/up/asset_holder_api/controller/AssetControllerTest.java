@@ -8,6 +8,7 @@ import com.up.asset_holder_api.configuration.SecurityConfig;
 import com.up.asset_holder_api.jwt.JwtAuthEntrypoint;
 import com.up.asset_holder_api.jwt.JwtAuthFilter;
 import com.up.asset_holder_api.jwt.JwtUtil;
+import com.up.asset_holder_api.model.entity.Asset;
 import com.up.asset_holder_api.model.request.AssetTrasferRequest;
 import com.up.asset_holder_api.service.AppUserService;
 import com.up.asset_holder_api.service.AssetService;
@@ -27,6 +28,9 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+/**
+ * Controller tests for Asset API (blockchain-backed: QueryAsset, QueryAllAssets, CreateAsset, UpdateAsset, DeleteAsset, TransferAsset, GetAssetHistory).
+ */
 @WebMvcTest(controllers = AssetController.class)
 @Import({SecurityConfig.class, BeanConfig.class, JwtAuthFilter.class, JwtAuthEntrypoint.class})
 class AssetControllerTest {
@@ -41,6 +45,27 @@ class AssetControllerTest {
     @BeforeEach
     void setupJwtAsUser() {
         SecurityTestSupport.mockJwtAsUser(jwtUtil, appUserService);
+    }
+
+    @Test
+    void getAssetById_requiresAuth() throws Exception {
+        mockMvc.perform(get("/api/v1/user/getAsset/{id}", "asset-1"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void getAssetById_asUser_returnsOk() throws Exception {
+        ObjectNode payload = JsonNodeFactory.instance.objectNode();
+        payload.put("asset_id", "asset-1");
+        payload.put("asset_name", "Test Laptop");
+        when(assetService.getAssetById(eq("asset-1"))).thenReturn(payload);
+
+        mockMvc.perform(get("/api/v1/user/getAsset/{id}", "asset-1")
+                        .header("Authorization", "Bearer " + SecurityTestSupport.GOOD_TOKEN))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Success"))
+                .andExpect(jsonPath("$.payload.asset_id").value("asset-1"))
+                .andExpect(jsonPath("$.payload.asset_name").value("Test Laptop"));
     }
 
     @Test
@@ -73,6 +98,15 @@ class AssetControllerTest {
                         .header("Authorization", "Bearer " + SecurityTestSupport.GOOD_TOKEN))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.payload.history").isArray());
+    }
+
+    @Test
+    void transferAsset_requiresAuth() throws Exception {
+        AssetTrasferRequest req = AssetTrasferRequest.builder().newAssignTo(2).build();
+        mockMvc.perform(put("/api/v1/admin/transferAsset/{id}", "asset1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -112,11 +146,70 @@ class AssetControllerTest {
         payload.put("assetId", "asset1");
         when(assetService.getHistoryById(eq("asset1"))).thenReturn(payload);
 
-        // Note: controller mapping uses /admin/getHistoryById/{id} BUT method expects request param "id".
-        mockMvc.perform(get("/api/v1/admin/getHistoryById/{ignored}", "asset1")
-                        .param("id", "asset1")
+        mockMvc.perform(get("/api/v1/admin/getHistoryById/{id}", "asset1")
                         .header("Authorization", "Bearer " + SecurityTestSupport.GOOD_TOKEN))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.payload.assetId").value("asset1"));
+    }
+
+    @Test
+    void createAsset_requiresAdmin() throws Exception {
+        Asset asset = Asset.builder().assetName("Laptop").qty("1").assignTo(1).build();
+        mockMvc.perform(post("/api/v1/admin/createAsset")
+                        .header("Authorization", "Bearer " + SecurityTestSupport.GOOD_TOKEN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(asset)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void createAsset_asAdmin_returnsOk() throws Exception {
+        SecurityTestSupport.mockJwtAsAdmin(jwtUtil, appUserService);
+        ObjectNode created = JsonNodeFactory.instance.objectNode();
+        created.put("asset_id", "asset-new");
+        created.put("asset_name", "New Laptop");
+        when(assetService.createAsset(any(Asset.class))).thenReturn(created);
+
+        Asset asset = Asset.builder().assetName("New Laptop").qty("1").assignTo(1).build();
+        mockMvc.perform(post("/api/v1/admin/createAsset")
+                        .header("Authorization", "Bearer " + SecurityTestSupport.GOOD_TOKEN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(asset)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payload.asset_id").value("asset-new"))
+                .andExpect(jsonPath("$.payload.asset_name").value("New Laptop"));
+    }
+
+    @Test
+    void updateAsset_asAdmin_returnsOk() throws Exception {
+        SecurityTestSupport.mockJwtAsAdmin(jwtUtil, appUserService);
+        ObjectNode updated = JsonNodeFactory.instance.objectNode();
+        updated.put("asset_id", "asset-1");
+        updated.put("asset_name", "Updated Laptop");
+        when(assetService.updateAsset(eq("asset-1"), any(Asset.class))).thenReturn(updated);
+
+        Asset asset = Asset.builder().assetName("Updated Laptop").qty("2").assignTo(1).build();
+        mockMvc.perform(put("/api/v1/admin/updateAsset/{id}", "asset-1")
+                        .header("Authorization", "Bearer " + SecurityTestSupport.GOOD_TOKEN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(asset)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payload.asset_name").value("Updated Laptop"));
+    }
+
+    @Test
+    void deleteAsset_requiresAuth() throws Exception {
+        mockMvc.perform(delete("/api/v1/user/deleteAsset/{id}", "asset-1"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void deleteAsset_asUser_returnsOk() throws Exception {
+        when(assetService.deleteAsset(eq("asset-1"))).thenReturn(true);
+
+        mockMvc.perform(delete("/api/v1/user/deleteAsset/{id}", "asset-1")
+                        .header("Authorization", "Bearer " + SecurityTestSupport.GOOD_TOKEN))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payload").value(true));
     }
 }

@@ -1,21 +1,27 @@
 export const uploadImages = async (fileName) => {
-    console.log("fileName", fileName);
-    const res = await fetch(
+  const res = await fetch(
     `${process.env.NEXT_PUBLIC_API_URL}/api/v1/files`,
-      {
-        method: "POST",
-        body: fileName,
+    {
+      method: "POST",
+      body: fileName,
+    },
+    {
+      next: {
+        tag: ["uploadImages"],
       },
-      {
-        next: {
-          tag: ["uploadImages"],
-        },
-      }
-    );
-    const payload = res.json();
-  console.log("file payload", payload)
+    }
+  );
+  const text = await res.text();
+  if (!text || text.trim() === "") {
+    return { ok: res.ok, status: res.status };
+  }
+  try {
+    const payload = JSON.parse(text);
     return payload;
-  };
+  } catch {
+    return { ok: false, status: res.status, message: text || "Invalid response" };
+  }
+};
 
   // export const getFileName = async (fileName) => {
   //   const res = await fetch(

@@ -27,6 +27,9 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+/**
+ * Controller tests for Report Issue API (blockchain-backed: CreateReportIssue, QueryReportIssue, QueryAllReportIssues, UpdateReportIssue, DeleteReportIssue).
+ */
 @WebMvcTest(controllers = ReportIssueController.class)
 @Import({SecurityConfig.class, BeanConfig.class, JwtAuthFilter.class, JwtAuthEntrypoint.class})
 class ReportIssueControllerTest {
@@ -41,6 +44,20 @@ class ReportIssueControllerTest {
     @BeforeEach
     void setupJwt() {
         SecurityTestSupport.mockJwtAsUser(jwtUtil, appUserService);
+    }
+
+    @Test
+    void getAllIssue_requiresAuth() throws Exception {
+        mockMvc.perform(get("/api/v1/user/getAllIssue"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void createIssue_requiresAuth() throws Exception {
+        mockMvc.perform(post("/api/v1/user/createIssue")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new ReportIssue())))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -65,6 +82,33 @@ class ReportIssueControllerTest {
                         .header("Authorization", "Bearer " + SecurityTestSupport.GOOD_TOKEN))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.payload.count").value(1));
+    }
+
+    @Test
+    void getIssueById_asUser_returnsOk() throws Exception {
+        ObjectNode payload = JsonNodeFactory.instance.objectNode();
+        payload.putArray("items").addObject().put("reportId", "report001").put("problem", "Broken screen");
+        when(reportIssueService.getIssueById(eq("report001"))).thenReturn(payload);
+
+        mockMvc.perform(get("/api/v1/user/getIssueById/{id}", "report001")
+                        .header("Authorization", "Bearer " + SecurityTestSupport.GOOD_TOKEN))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Success"))
+                .andExpect(jsonPath("$.payload").exists());
+    }
+
+    @Test
+    void updateIssue_asUser_returnsOk() throws Exception {
+        when(reportIssueService.updateIssue(eq("report001"), any(ReportIssue.class))).thenReturn(true);
+
+        ReportIssue issue = new ReportIssue();
+        issue.setProblem("Updated problem");
+        mockMvc.perform(put("/api/v1/user/updateIssue/{id}", "report001")
+                        .header("Authorization", "Bearer " + SecurityTestSupport.GOOD_TOKEN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(issue)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payload").value(true));
     }
 
     @Test

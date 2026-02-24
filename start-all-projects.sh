@@ -296,8 +296,8 @@ echo "🔧 Step 2: Starting API Backend..."
 echo "-----------------------------------"
 cd "$API_DIR"
 
-# Check port 8081
-check_port 8081
+# Check port 8081 (don't exit if in use; we'll skip starting API below)
+check_port 8081 || true
 
 # Set environment variable if not set
 if [ -z "$SPRING_DATASOURCE_PASSWORD" ]; then
@@ -408,8 +408,8 @@ echo "🎨 Step 3: Starting Frontend..."
 echo "--------------------------------"
 cd "$UI_DIR"
 
-# Check port 3000
-check_port 3000
+# Check port 3000 (don't exit if in use; we'll skip starting frontend below)
+check_port 3000 || true
 
 # Check if node_modules exists
 if [ ! -d "node_modules" ]; then
