@@ -65,7 +65,7 @@ export default function ProfileDropdown() {
     {
       key: "2",
       label: (
-        <button className="py-2 px-4" onClick={handleLogout}>
+        <button type="button" className="py-2 px-4" onClick={handleLogout} aria-label="Sign Out" data-testid="sign-out-button">
           <Space>
             <svg
               width="20"
@@ -94,7 +94,7 @@ export default function ProfileDropdown() {
   return (
     <div className="flex gap-3">
       <Dropdown menu={{ items: menuItems }} trigger={["click"]}>
-        <Button type="link">
+        <Button type="link" aria-label="Open profile menu">
           <Space>
             <Avatar src={user?.profileImg || "https://images.unsplash.com/photo-1502823403499-6ccfcf4fb453?w=500"} />
           </Space>

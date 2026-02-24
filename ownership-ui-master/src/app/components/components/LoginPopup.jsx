@@ -41,13 +41,13 @@ export default function LoginPopup({ onClose }) {
                     setUsername(data.username);
                     const updatedSession = await getSession();
                     const userRole = updatedSession?.user?.role;
+                    onClose();
                     if (userRole === "ADMIN") {
-                        router.push("/admin/dashboard");
+                        router.replace("/admin/dashboard");
                     } else {
-                        router.push("/user/asset");
+                        router.replace("/user/asset");
                     }
                     router.refresh();
-                    onClose();
                 } else {
                     setError('root', {
                         type: 'manual',
@@ -65,12 +65,19 @@ export default function LoginPopup({ onClose }) {
 
     return (
         <>
-            {/* overlay */}
-            <div className="fixed inset-0 bg-black bg-opacity-50 z-40" onClick={onClose}></div>
-
-            {/* center */}
-            <div id="popup-modal" tabIndex="-1" className="fixed inset-0 flex items-center justify-center z-50">
-                <div className="relative p-4 w-full max-w-md max-h-full">
+            {/* overlay + modal: overlay closes on outside click; inner content stops propagation */}
+            <div
+                id="popup-modal"
+                role="dialog"
+                aria-modal="true"
+                tabIndex="-1"
+                className="fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-50"
+                onClick={onClose}
+            >
+                <div
+                    className="relative p-4 w-full max-w-md max-h-full"
+                    onClick={(e) => e.stopPropagation()}
+                >
                     <div className="relative bg-white rounded-lg shadow dark:bg-gray-700">
                         <button
                             onClick={onClose}
@@ -132,7 +139,7 @@ export default function LoginPopup({ onClose }) {
                                 </div>
 
                                 {errors.root && (
-                                    <p className="text-red-500 text-sm mt-2">{errors.root.message}</p>
+                                    <p id="login-root-error" className="text-red-500 text-sm mt-2" role="alert">{errors.root.message}</p>
                                 )}
 
                                 <div className="flex mt-5">

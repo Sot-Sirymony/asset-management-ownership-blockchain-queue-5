@@ -125,6 +125,7 @@ export default function DashboardClient(userId) {
         fetchReport()
     }, [token]);
     return (
+        <div data-testid="dashboard-content">
         <List
             title={<span style={{ fontSize: '27px', color: '#151D48', fontWeight: '600' }}>Dashboard</span>}
             canCreate={false}
@@ -223,5 +224,6 @@ export default function DashboardClient(userId) {
                 </Col>
             </Row>
         </List>
+        </div>
     );
 }

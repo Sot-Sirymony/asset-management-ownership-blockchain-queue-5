@@ -298,7 +298,7 @@ export default function AssetListClient() {
                             dataIndex="actions"
                             render={(_, record) => (
                                 <Space>
-                                    <button onClick={() => handleView(record.assetId)} style={{ background: "none", border: "none", cursor: "pointer" }}>
+                                    <button type="button" onClick={() => handleView(record.assetId)} style={{ background: "none", border: "none", cursor: "pointer" }} aria-label="View asset detail" data-testid="view-asset-detail">
                                         <Image src={ViewDetail} alt={"view-detail-icon"} />
                                     </button>
                                     <button onClick={() => handleEdit(record.assetId)} style={{ background: "none", border: "none", cursor: "pointer" }}>

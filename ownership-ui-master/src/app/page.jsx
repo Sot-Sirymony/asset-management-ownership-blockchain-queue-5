@@ -26,10 +26,21 @@ export default function IndexPage() {
     AOS.refresh();
   }, []);
   const [isLoginVisible, setIsLoginVisible] = useState(false);
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
+  // When logged in, visiting home redirects to app so "home shows user state"
+  useEffect(() => {
+    if (status === "loading") return;
+    if (session?.user) {
+      const role = session.user.role;
+      if (role === "ADMIN") router.replace("/admin/dashboard");
+      else router.replace("/user/asset");
+    }
+  }, [session, status, router]);
   const handleLoginClick = () => {
-    if (session) {
-      router.push("/admin/dashboard");
+    if (session?.user) {
+      const role = session.user.role;
+      if (role === "ADMIN") router.replace("/admin/dashboard");
+      else router.replace("/user/asset");
     } else {
       setIsLoginVisible(true);
     }

@@ -183,23 +183,33 @@ channel_and_join() {
       echo "$create_output"
     elif already_exists "$create_output" || echo "$create_output" | grep -Fq "error applying config update to existing channel"; then
       echo "Channel channel-org already exists; fetching latest block..."
-      set +e
-      fetch_output="$(peer channel fetch 0 /etc/hyperledger/fabric/channel-artifacts/channel-org.block \
-        -o orderer.ownify.com:7050 \
-        -c channel-org \
-        --tls --cafile "$ORDERER_CA" 2>&1)"
-      fetch_status=$?
-      set -e
-
+      fetch_status=1
+      for attempt in 1 2 3 4 5; do
+        set +e
+        fetch_output="$(peer channel fetch 0 /etc/hyperledger/fabric/channel-artifacts/channel-org.block \
+          -o orderer.ownify.com:7050 \
+          -c channel-org \
+          --tls --cafile "$ORDERER_CA" 2>&1)"
+        fetch_status=$?
+        set -e
+        if [ "$fetch_status" -eq 0 ]; then
+          echo "$fetch_output"
+          break
+        fi
+        if echo "$fetch_output" | grep -Fq "SERVICE_UNAVAILABLE"; then
+          echo "Orderer not ready (attempt $attempt/5); waiting 5s..."
+          sleep 5
+        else
+          echo "$fetch_output"
+          exit "$fetch_status"
+        fi
+      done
       if [ "$fetch_status" -ne 0 ]; then
         echo "$fetch_output"
-        if echo "$fetch_output" | grep -Fq "SERVICE_UNAVAILABLE"; then
-          echo "Channel exists but orderer cannot serve channel-org right now."
-          echo "Try a clean rebuild: ./net.sh reset && ./net.sh up"
-        fi
+        echo "Channel exists but orderer cannot serve channel-org after retries."
+        echo "Try a clean rebuild: ./net.sh reset && ./net.sh up"
         exit "$fetch_status"
       fi
-      echo "$fetch_output"
     else
       echo "$create_output"
       exit "$create_status"

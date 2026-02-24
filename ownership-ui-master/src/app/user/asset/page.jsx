@@ -289,7 +289,7 @@ const handleFilterSave = (filterData) => {
                   onClick={() => handleEdit(record.id)}
                 > */}
                     {/* <ViewDetail onClick={() => handleEdit(record.id)} /> */}
-                    <button onClick={() => handleView(record.assetId)} style={{ background: "none", border: "none", cursor: "pointer" }}>
+                    <button type="button" onClick={() => handleView(record.assetId)} style={{ background: "none", border: "none", cursor: "pointer" }} aria-label="View asset detail" data-testid="view-asset-detail">
                       <svg width="20" height="20" viewBox="0 0 24 25" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <path d="M2.9095 13.7126C2.56793 12.9695 2.56793 12.1122 2.9095 11.3691C4.4906 7.92927 7.96659 5.54085 12.0004 5.54085C16.0343 5.54085 19.5102 7.92928 21.0913 11.3691C21.4329 12.1122 21.4329 12.9695 21.0913 13.7126C19.5102 17.1524 16.0343 19.5408 12.0004 19.5408C7.96659 19.5408 4.4906 17.1524 2.9095 13.7126Z" stroke="#5B636D" stroke-width="2" />
                         <path d="M15.0004 12.5408C15.0004 14.1977 13.6573 15.5408 12.0004 15.5408C10.3436 15.5408 9.00042 14.1977 9.00042 12.5408C9.00042 10.884 10.3436 9.54085 12.0004 9.54085C13.6573 9.54085 15.0004 10.884 15.0004 12.5408Z" stroke="#5B636D" stroke-width="2" />
