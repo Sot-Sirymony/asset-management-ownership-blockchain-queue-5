@@ -14,6 +14,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import jakarta.validation.Valid;
 import java.io.IOException;
 import java.sql.Timestamp;
 
@@ -76,8 +77,8 @@ public class AssetController {
     }
 
     @PostMapping("/admin/createAsset")
-    @Operation(summary = "Admin create asset")
-    public ResponseEntity<ApiResponse<JsonNode>> createAsset(@RequestBody Asset asset) throws IOException {
+    @Operation(summary = "Admin create asset (assign asset to user)")
+    public ResponseEntity<ApiResponse<JsonNode>> createAsset(@Valid @RequestBody Asset asset) throws IOException {
         ApiResponse<JsonNode> res = ApiResponse.<JsonNode>builder()
                 .message("Success")
                 .payload(assetService.createAsset(asset))
@@ -89,7 +90,7 @@ public class AssetController {
 
     @PutMapping("/admin/updateAsset/{id}")
     @Operation(summary = "Admin update asset")
-    public ResponseEntity<ApiResponse<JsonNode>> updateAsset(@PathVariable String id,@RequestBody Asset asset) throws IOException {
+    public ResponseEntity<ApiResponse<JsonNode>> updateAsset(@PathVariable String id, @Valid @RequestBody Asset asset) throws IOException {
         ApiResponse<JsonNode> res = ApiResponse.<JsonNode>builder()
                 .message("Success")
                 .payload(assetService.updateAsset(id,asset))

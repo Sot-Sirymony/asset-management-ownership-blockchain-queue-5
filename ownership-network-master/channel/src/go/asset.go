@@ -17,9 +17,16 @@ type Asset struct {
 	AssignTo   string `json:"assign_to"`
 	Username   string `json:"username"`
 	CreatedAt  string `json:"created_at"`
+	UpdatedAt  string `json:"updated_at"` // Set on transfer/update so history shows distinct assign vs reassign times
 	DepName    string `json:"dep_name"`
 }
 
+// AssetHistoryEntry is one history record with chain identifiers for tracking (decentralized).
+type AssetHistoryEntry struct {
+	Asset
+	TxID      string `json:"tx_id"`      // This transaction (unique per event)
+	Timestamp string `json:"timestamp"`   // Fabric commit time (RFC3339)
+}
 
 func (s *SmartContract) AssetExists(ctx contractapi.TransactionContextInterface, assetID string) (bool, error) {
 	data, err := ctx.GetStub().GetState(assetID)
@@ -40,6 +47,7 @@ func (s *SmartContract) CreateAsset(ctx contractapi.TransactionContextInterface,
 	}
 
 	// Proceed to create the asset since it does not exist
+	now := time.Now().String()
 	asset := Asset{
 		AssetID:    assetID,
 		AssetName:  assetName,
@@ -49,7 +57,8 @@ func (s *SmartContract) CreateAsset(ctx contractapi.TransactionContextInterface,
 		Attachment: attachment,
 		AssignTo:   assignTo,
 		Username:   username,
-		CreatedAt:  time.Now().String(),
+		CreatedAt:  now,
+		UpdatedAt:  now,
 		DepName:    depName,
 	}
 
@@ -89,6 +98,7 @@ func (s *SmartContract) UpdateAsset(ctx contractapi.TransactionContextInterface,
 	asset.AssignTo = assignTo
 	asset.Username = username
 	asset.DepName = depName
+	asset.UpdatedAt = time.Now().String()
 
 	// Save the updated asset back to the ledger
 	if err := PutState(ctx, assetID, asset); err != nil {
@@ -103,31 +113,36 @@ func (s *SmartContract) DeleteAsset(ctx contractapi.TransactionContextInterface,
 	return ctx.GetStub().DelState(assetID)
 }
 
-// GetAssetHistory retrieves the historical changes of a specific asset by assetID
-func (s *SmartContract) GetAssetHistory(ctx contractapi.TransactionContextInterface, assetID string) ([]*Asset, error) {
+// GetAssetHistory retrieves the historical changes of a specific asset by assetID.
+// Each entry includes tx_id and timestamp so clients can build chain: first tx → previous tx → this tx.
+func (s *SmartContract) GetAssetHistory(ctx contractapi.TransactionContextInterface, assetID string) ([]*AssetHistoryEntry, error) {
 	resultsIterator, err := ctx.GetStub().GetHistoryForKey(assetID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get asset history: %v", err)
 	}
 	defer resultsIterator.Close()
 
-	var history []*Asset
+	var history []*AssetHistoryEntry
 	for resultsIterator.HasNext() {
 		response, err := resultsIterator.Next()
 		if err != nil {
 			return nil, fmt.Errorf("failed to iterate through asset history: %v", err)
 		}
 
-		var asset *Asset
-		if response.IsDelete {
-			asset = &Asset{AssetID: assetID} 
+		entry := &AssetHistoryEntry{TxID: response.GetTxId()}
+		if response.Timestamp != nil {
+			entry.Timestamp = response.Timestamp.AsTime().Format(time.RFC3339)
+		}
+		if response.GetIsDelete() {
+			entry.Asset = Asset{AssetID: assetID}
 		} else {
-			asset, err = UnmarshalAsset(response.Value)
+			asset, err := UnmarshalAsset(response.Value)
 			if err != nil {
 				return nil, fmt.Errorf("failed to unmarshal asset history: %v", err)
 			}
+			entry.Asset = *asset
 		}
-		history = append(history, asset)
+		history = append(history, entry)
 	}
 
 	return history, nil
@@ -194,8 +209,9 @@ func (s *SmartContract) TransferAsset(ctx contractapi.TransactionContextInterfac
 		return nil, fmt.Errorf("asset is already assigned to user %s", newAssignTo)
 	}
 
-	// Update only the AssignTo field
+	// Update AssignTo and set UpdatedAt so history shows distinct assign vs reassign times
 	asset.AssignTo = newAssignTo
+	asset.UpdatedAt = time.Now().String()
 
 	// Save the updated asset back to the ledger
 	if err := PutState(ctx, assetID, asset); err != nil {

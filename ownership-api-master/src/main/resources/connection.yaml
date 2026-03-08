@@ -27,11 +27,27 @@ orderers:
     grpcOptions:
       ssl-target-name-override: orderer.ownify.com
       hostnameOverride: orderer.ownify.com
+  orderer2.ownify.com:
+    url: grpcs://orderer2.ownify.com:8050
+    tlsCACerts:
+      path: /etc/hyperledger/fabric/crypto-config/ordererOrganizations/ownify.com/orderers/orderer2.ownify.com/tls/ca.crt
+    grpcOptions:
+      ssl-target-name-override: orderer2.ownify.com
+      hostnameOverride: orderer2.ownify.com
+  orderer3.ownify.com:
+    url: grpcs://orderer3.ownify.com:9050
+    tlsCACerts:
+      path: /etc/hyperledger/fabric/crypto-config/ordererOrganizations/ownify.com/orderers/orderer3.ownify.com/tls/ca.crt
+    grpcOptions:
+      ssl-target-name-override: orderer3.ownify.com
+      hostnameOverride: orderer3.ownify.com
 
 channels:
-  mychannel:
+  channel-org:
     orderers:
       - orderer.ownify.com
+      - orderer2.ownify.com
+      - orderer3.ownify.com
     peers:
       peer0.org1.ownify.com:
         endorsingPeer: true

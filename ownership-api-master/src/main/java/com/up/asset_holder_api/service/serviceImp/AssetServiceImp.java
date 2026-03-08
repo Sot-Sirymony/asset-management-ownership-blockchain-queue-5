@@ -58,6 +58,11 @@ public class AssetServiceImp implements AssetService {
     private static final String COUCHDB_PASS =
             System.getenv().getOrDefault("COUCHDB_PASS", "password");
 
+    /** Identity used for read-only Fabric calls (QueryAllAssets, QueryAsset, GetAssetHistory). Non-admin users typically have no wallet entry; this avoids "user does not exist in wallet" and lets them see assigned assets. */
+    private static String fabricReadUser() {
+        return System.getenv().getOrDefault("FABRIC_READ_USER", "admin");
+    }
+
     private final UserRepository userRepository;
     private final NotificationService notificationService;
     private final FabricGatewayCache gatewayCache;
@@ -85,10 +90,9 @@ public class AssetServiceImp implements AssetService {
             key = "'asset_' + T(com.up.asset_holder_api.utils.GetCurrentUser).currentId() + '_' + #id")
     public JsonNode getAssetById(String id) {
         log.debug("Fetching asset with ID: {}", id);
-        UserRequestResponse user = currentUserResponse();
 
         try {
-            Gateway gateway = gatewayCache.getOrCreate(user.getUsername());
+            Gateway gateway = gatewayCache.getOrCreate(fabricReadUser());
             Contract contract = fabricContract(gateway);
             byte[] result = contract.evaluateTransaction("QueryAsset", id);
             JsonNode asset = MAPPER.readTree(new String(result, StandardCharsets.UTF_8));
@@ -159,11 +163,25 @@ public class AssetServiceImp implements AssetService {
             });
         } catch (ContractException e) {
             log.error("Failed to create asset on blockchain: {} - {}", asset.getAssetName(), e.getMessage());
-            throw new NotFoundException("Failed to create asset: " + e.getMessage());
+            String msg = "Failed to create asset: " + e.getMessage();
+            if (isOrdererOrTransactionError(e.getMessage())) {
+                throw new IllegalStateException(msg);
+            }
+            throw new NotFoundException(msg);
         } catch (Exception e) {
             log.error("Unexpected error creating asset: {} - {}", asset.getAssetName(), e.getMessage(), e);
-            throw new NotFoundException("Failed to create asset: " + e.getMessage());
+            String msg = "Failed to create asset: " + e.getMessage();
+            if (isOrdererOrTransactionError(e.getMessage())) {
+                throw new IllegalStateException(msg);
+            }
+            throw new NotFoundException(msg);
         }
+    }
+
+    private static boolean isOrdererOrTransactionError(String message) {
+        if (message == null) return false;
+        String m = message.toLowerCase();
+        return m.contains("orderer") || m.contains("send transaction") || m.contains("transaction");
     }
 
     /**
@@ -207,10 +225,18 @@ public class AssetServiceImp implements AssetService {
             });
         } catch (ContractException e) {
             log.error("Asset not found for update: {} - {}", id, e.getMessage());
+            String msg = "Failed to update asset: " + id + ". " + e.getMessage();
+            if (isOrdererOrTransactionError(e.getMessage())) {
+                throw new IllegalStateException(msg);
+            }
             throw new NotFoundException("Asset not found: " + id + " (" + e.getMessage() + ")");
         } catch (Exception e) {
             log.error("Failed to update asset: {} - {}", id, e.getMessage(), e);
-            throw new NotFoundException("Failed to update asset: " + id + ". " + e.getMessage());
+            String msg = "Failed to update asset: " + id + ". " + e.getMessage();
+            if (isOrdererOrTransactionError(e.getMessage())) {
+                throw new IllegalStateException(msg);
+            }
+            throw new NotFoundException(msg);
         }
     }
 
@@ -237,10 +263,18 @@ public class AssetServiceImp implements AssetService {
             });
         } catch (ContractException e) {
             log.error("Asset not found for deletion: {} - {}", id, e.getMessage());
+            String msg = "Failed to delete asset: " + id + ". " + e.getMessage();
+            if (isOrdererOrTransactionError(e.getMessage())) {
+                throw new IllegalStateException(msg);
+            }
             throw new NotFoundException("Asset not found: " + id + " (" + e.getMessage() + ")");
         } catch (Exception e) {
             log.error("Failed to delete asset: {} - {}", id, e.getMessage(), e);
-            throw new NotFoundException("Failed to delete asset: " + id + ". " + e.getMessage());
+            String msg = "Failed to delete asset: " + id + ". " + e.getMessage();
+            if (isOrdererOrTransactionError(e.getMessage())) {
+                throw new IllegalStateException(msg);
+            }
+            throw new NotFoundException(msg);
         }
     }
 
@@ -248,10 +282,8 @@ public class AssetServiceImp implements AssetService {
     @Cacheable(cacheNames = "allAssetsByUser", cacheManager = "blockchainCacheManager",
             key = "'allAssets_' + T(com.up.asset_holder_api.utils.GetCurrentUser).currentId()")
     public JsonNode getAllAsset() {
-        UserRequestResponse userResponse = currentUserResponse();
-
         try {
-            Gateway gateway = gatewayCache.getOrCreate(userResponse.getUsername());
+            Gateway gateway = gatewayCache.getOrCreate(fabricReadUser());
             Contract contract = fabricContract(gateway);
             ArrayNode assetsWithUserInfo = MAPPER.createArrayNode();
             UserRequestResponse currentUser = userRepository.findUserById(GetCurrentUser.currentId());
@@ -356,21 +388,27 @@ public class AssetServiceImp implements AssetService {
             });
         } catch (ContractException e) {
             log.error("Asset not found for transfer: {} - {}", id, e.getMessage());
+            String msg = "Failed to transfer asset: " + id + ". " + e.getMessage();
+            if (isOrdererOrTransactionError(e.getMessage())) {
+                throw new IllegalStateException(msg);
+            }
             throw new NotFoundException("Asset not found: " + id + " (" + e.getMessage() + ")");
         } catch (NotFoundException e) {
             throw e;
         } catch (Exception e) {
             log.error("Failed to transfer asset: {} - {}", id, e.getMessage(), e);
-            throw new NotFoundException("Failed to transfer asset: " + id + ". " + e.getMessage());
+            String msg = "Failed to transfer asset: " + id + ". " + e.getMessage();
+            if (isOrdererOrTransactionError(e.getMessage())) {
+                throw new IllegalStateException(msg);
+            }
+            throw new NotFoundException(msg);
         }
     }
 
     @Override
     public JsonNode getHistoryById(String id) {
-        UserRequestResponse user = currentUserResponse();
-
         try {
-            Gateway gateway = gatewayCache.getOrCreate(user.getUsername());
+            Gateway gateway = gatewayCache.getOrCreate(fabricReadUser());
             Contract contract = fabricContract(gateway);
             try {
                 contract.evaluateTransaction("QueryAsset", id);
@@ -393,14 +431,14 @@ public class AssetServiceImp implements AssetService {
 
     @Override
     public JsonNode getAllAssetHistroy() {
-        String channel = System.getenv().getOrDefault("FABRIC_CHANNEL", "mychannel");
+        String channel = System.getenv().getOrDefault("FABRIC_CHANNEL", "channel-org");
         String couchDbName = channel + "_" + CHAINCODE;
         String url = COUCHDB_BASE_URL + "/" + couchDbName + "/_all_docs?include_docs=true";
 
         UserRequestResponse userResponse = currentUserResponse();
 
         try {
-            Gateway gateway = gatewayCache.getOrCreate(userResponse.getUsername());
+            Gateway gateway = gatewayCache.getOrCreate(fabricReadUser());
             User currentUser = userRepository.findUserByUsername(userResponse.getUsername());
             boolean isAdmin = "ADMIN".equals(currentUser.getRoles());
 
@@ -442,8 +480,11 @@ public class AssetServiceImp implements AssetService {
 
                 byte[] resultBytes = contract.evaluateTransaction("GetAssetHistory", id);
                 JsonNode history = MAPPER.readTree(new String(resultBytes, StandardCharsets.UTF_8));
+                int size = history.size();
+                String creationTxId = size > 0 ? history.get(size - 1).path("tx_id").asText(null) : "";
 
-                for (JsonNode entry : history) {
+                for (int i = 0; i < size; i++) {
+                    JsonNode entry = history.get(i);
                     if (!entry.hasNonNull("asset_id") || entry.get("asset_id").asText().isBlank()) continue;
                     if (!entry.hasNonNull("assign_to")) continue;
 
@@ -452,6 +493,8 @@ public class AssetServiceImp implements AssetService {
 
                     ObjectNode out = MAPPER.createObjectNode();
                     out.setAll((ObjectNode) entry);
+                    out.put("creation_tx_id", creationTxId == null ? "" : creationTxId);
+                    out.put("previous_tx_id", i + 1 < size ? history.get(i + 1).path("tx_id").asText(null) : "");
 
                     UserRequestResponse assignedUser = userRepository.findUserById(assignToUserId);
                     if (assignedUser != null) {

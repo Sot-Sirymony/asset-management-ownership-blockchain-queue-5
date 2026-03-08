@@ -79,14 +79,16 @@ public class GlobalExceptionHandle {
     }
 
     /**
-     * Handles IllegalStateException (e.g. enrollment or gateway setup failure) - returns 503.
+     * Handles IllegalStateException (e.g. enrollment, gateway, or orderer failure) - returns 503.
      */
     @ExceptionHandler(IllegalStateException.class)
     @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
     public ProblemDetail handleIllegalStateException(IllegalStateException e) {
         log.warn("Service state error: {}", e.getMessage());
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE,
-                "Service temporarily unavailable. Please try again later.");
+        String detail = e.getMessage() != null && !e.getMessage().isBlank()
+                ? e.getMessage()
+                : "Service temporarily unavailable. Please try again later.";
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, detail);
         problemDetail.setTitle("Service Unavailable");
         problemDetail.setProperty("timestamp", System.currentTimeMillis());
         return problemDetail;

@@ -3,7 +3,7 @@
 import { SearchOutlined } from "@ant-design/icons";
 import { useTable } from "@refinedev/antd";
 import { useGetIdentity } from "@refinedev/core";
-import { Table, Button, Input } from "antd";
+import { Table, Button, Input, Tooltip } from "antd";
 import { useEffect, useState } from "react";
 import "../../../styles/globals.css";
 import DeletePopup from "../../components/components/DeletePopup";
@@ -13,7 +13,7 @@ import Filter from "../../components/components/Filter";
 import { getHistory } from "../service/history.service";
 import { useSession } from "next-auth/react";
 import Loading from "../components/Loading";
-import { formatDateBC } from "../../utils/formatDate";
+import { formatDateBCWithTime } from "../../utils/formatDate";
 
 export default function HistoryClient() {
 
@@ -89,11 +89,8 @@ export default function HistoryClient() {
         // Apply user filter
         if (criteria.userId) {
           filtered = filtered.filter(request => {
-            console.log("Filtering by userId:", {
-              requestUserId: request.assignTo.userId,
-              criteriaUserId: criteria.userId
-            });
-            return String(request.assignTo.userId) === String(criteria.userId);
+            const uid = request.assignTo?.userId ?? request.assignTo?.user_id;
+            return uid != null && String(uid) === String(criteria.userId);
           });
         }
     
@@ -128,30 +125,61 @@ export default function HistoryClient() {
         applyFilters(history, searchText, filterCriteria);
       }, [filterCriteria, history]);
 
+    /** Parse timestamp for sorting (handles Go time string). */
+    const parseEventTime = (entry) => {
+        const v = entry?.updated_at ?? entry?.created_at;
+        if (v == null || v === '') return 0;
+        const s = String(v).trim();
+        const part = s.slice(0, 19).replace(' ', 'T');
+        const d = new Date(part);
+        return isNaN(d.getTime()) ? 0 : d.getTime();
+    };
+    /** Event time for display: use updated_at when set (transfer/update), else created_at. */
+    const eventTime = (entry) => entry?.updated_at ?? entry?.created_at;
+
     const fetchHistory = async () => {
         setLoading(true);
         try {
-            const allHistory = await getHistory(token)
-            const flattenedHistory = allHistory.flat(); 
-            console.log("allHistory",allHistory)
-            const formattedHistory = flattenedHistory.map((asset, id) => ({
+            const allHistory = await getHistory(token);
+            const flattenedHistory = allHistory.flat();
+            // Group by asset_id and sort by event time (oldest first) so reassignDate = next event's time
+            const byAsset = {};
+            flattenedHistory.forEach((entry) => {
+                const aid = entry.asset_id || entry.assetId;
+                if (!aid) return;
+                if (!byAsset[aid]) byAsset[aid] = [];
+                byAsset[aid].push(entry);
+            });
+            Object.keys(byAsset).forEach((aid) => {
+                byAsset[aid].sort((a, b) => parseEventTime(a) - parseEventTime(b));
+            });
+            const withReassign = [];
+            Object.values(byAsset).forEach((group) => {
+                group.forEach((entry, i) => {
+                    const next = group[i + 1];
+                    withReassign.push({
+                        ...entry,
+                        assignDate: formatDateBCWithTime(eventTime(entry)),
+                        reassignDate: next ? formatDateBCWithTime(eventTime(next)) : '',
+                    });
+                });
+            });
+            const formattedHistory = withReassign.map((asset, id) => ({
                 ...asset,
                 id: id + 1,
                 assetName: asset.asset_name,
                 attachment: asset.attachment,
-                assignDate: formatDateBC(asset.created_at),
                 fullName: asset.assignTo?.fullName || "Unknown",
                 profileImg: asset.assignTo?.profileImg,
                 department: asset.assignTo?.department,
             }));
-            console.log("history", formattedHistory)
-            setHistory(formattedHistory)
+            setHistory(formattedHistory);
         } catch (error) {
             console.error("Failed to fetch assets:", error);
         } finally {
-            setLoading(false); 
+            setLoading(false);
         }
-    }
+    };
 
     useEffect(() => {
         fetchHistory()
@@ -205,6 +233,21 @@ export default function HistoryClient() {
                     >
                         <Table.Column dataIndex="id" title={"No"} width={"10px"} />
                         <Table.Column
+                            dataIndex="tx_id"
+                            title={"Tx ID"}
+                            width={120}
+                            render={(txId, record) => {
+                                const short = (txId && String(txId).slice(0, 12)) || "—";
+                                const prev = record.previous_tx_id ? String(record.previous_tx_id).slice(0, 12) : "—";
+                                const creation = record.creation_tx_id ? String(record.creation_tx_id).slice(0, 12) : "—";
+                                return (
+                                    <Tooltip title={<span style={{ whiteSpace: "pre-wrap" }}>{`This: ${txId || "—"}\nPrevious: ${record.previous_tx_id || "—"}\nCreation: ${record.creation_tx_id || "—"}`}</span>}>
+                                        <span className="text-xs font-mono text-[#4B68FF]" title={txId}>{short}{txId && txId.length > 12 ? "…" : ""}</span>
+                                    </Tooltip>
+                                );
+                            }}
+                        />
+                        <Table.Column
                             dataIndex="assetName"
                             title={"Assets"}
                             render={(_, record) => (
@@ -241,7 +284,7 @@ export default function HistoryClient() {
                                 </div>
                             )}
                         />
-                        <Table.Column dataIndex="assignDate" title={"Reassign Date"} />
+                        <Table.Column dataIndex="reassignDate" title={"Reassign Date"} />
                     </Table>
                 </div>
             )}

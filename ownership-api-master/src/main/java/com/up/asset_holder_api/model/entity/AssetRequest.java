@@ -22,4 +22,9 @@ public class AssetRequest {
     private String reason;
     private String attachment;
     private LocalDateTime createdAt;
+    /** PENDING, ASSIGNED, REJECTED */
+    private String status;
+    /** Blockchain asset ID when request is fulfilled */
+    private String assignedAssetId;
+    private LocalDateTime resolvedAt;
 }

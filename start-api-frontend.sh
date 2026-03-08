@@ -223,6 +223,40 @@ echo ""
 echo "🔧 Step 1: Starting API Backend..."
 echo "-----------------------------------"
 cd "$API_DIR"
+
+# Fabric env for stable Assign Asset (127.0.0.1, channel-org, discovery off, absolute crypto path)
+CHANNEL_DIR="$NETWORK_DIR/channel"
+if [ -z "${FABRIC_CRYPTO_PATH:-}" ]; then
+    export FABRIC_CRYPTO_PATH="$(cd "$ROOT_DIR" && cd "$CHANNEL_DIR" && pwd)"
+    echo -e "${GREEN}✅ Using FABRIC_CRYPTO_PATH: $FABRIC_CRYPTO_PATH${NC}"
+fi
+if [ -z "${FABRIC_PEER_URL:-}" ]; then
+    export FABRIC_PEER_URL="grpcs://127.0.0.1:7051"
+    echo -e "${GREEN}✅ Using FABRIC_PEER_URL: $FABRIC_PEER_URL${NC}"
+fi
+if [ -z "${FABRIC_ORDERER_URL:-}" ]; then
+    export FABRIC_ORDERER_URL="grpcs://127.0.0.1:7050"
+    echo -e "${GREEN}✅ Using FABRIC_ORDERER_URL: $FABRIC_ORDERER_URL${NC}"
+fi
+if [ -z "${FABRIC_CHANNEL:-}" ]; then
+    export FABRIC_CHANNEL=channel-org
+    echo -e "${GREEN}✅ Using FABRIC_CHANNEL: $FABRIC_CHANNEL${NC}"
+fi
+if [ -z "${FABRIC_DISCOVERY:-}" ]; then
+    export FABRIC_DISCOVERY=false
+    echo -e "${GREEN}✅ Using FABRIC_DISCOVERY: $FABRIC_DISCOVERY${NC}"
+fi
+if [ -z "${WALLET_PATH:-}" ]; then
+    export WALLET_PATH="$API_DIR/wallet"
+fi
+if [ -z "${COUCHDB_BASE_URL:-}" ]; then
+    export COUCHDB_BASE_URL="http://localhost:5984"
+fi
+if [ -z "${FABRIC_CA_PEM_FILE:-}" ] && [ -f "$FABRIC_LOCAL_CA_CERT" ]; then
+    export FABRIC_CA_PEM_FILE="$FABRIC_LOCAL_CA_CERT"
+    echo -e "${GREEN}✅ Using FABRIC_CA_PEM_FILE${NC}"
+fi
+
 warn_if_fabric_channel_unavailable
 seed_blockchain_ledger_data
 
@@ -247,17 +281,6 @@ else
     fi
     ensure_local_postgres
     bootstrap_local_postgres_schema
-
-    # Use local Fabric CA certificate path when running API outside Docker
-    if [ -z "${FABRIC_CA_PEM_FILE:-}" ]; then
-        if [ -f "$FABRIC_LOCAL_CA_CERT" ]; then
-            export FABRIC_CA_PEM_FILE="$FABRIC_LOCAL_CA_CERT"
-            echo -e "${GREEN}✅ Using local FABRIC_CA_PEM_FILE: $FABRIC_CA_PEM_FILE${NC}"
-        else
-            echo -e "${YELLOW}⚠️  Local Fabric CA cert not found at:$FABRIC_LOCAL_CA_CERT${NC}"
-            echo -e "${YELLOW}   API may fail if FABRIC_CA_PEM_FILE is not configured.${NC}"
-        fi
-    fi
 
     echo "Building API..."
     mvn clean compile -DskipTests > /dev/null 2>&1 || {

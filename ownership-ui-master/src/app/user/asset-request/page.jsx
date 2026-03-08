@@ -125,6 +125,7 @@ export default function CategoryList() {
       email: request.user?.email || "user@example.com",
       attachment: request && request?.attachment == "string" ? "https://img.freepik.com/premium-photo/mystery-box-question-mark-sign-3d-element_118019-5025.jpg" : request.attachment,
       department: request.user?.department?.dep_name || "Unknown Department",
+      status: request.status || "PENDING",
     }));
     SetAssetRequest(formattedDepartments)
     setFilteredRequests(formattedDepartments)
@@ -227,6 +228,16 @@ export default function CategoryList() {
           <Table.Column dataIndex="qty" title={"QTY"} width={"100px"} />
           <Table.Column dataIndex="reason" title={"Reason"} />
           <Table.Column dataIndex="department" title={"Department"} />
+          <Table.Column
+            dataIndex="status"
+            title={"Status"}
+            width={"120px"}
+            render={(status) => {
+              const s = (status || "PENDING").toUpperCase();
+              const color = s === "ASSIGNED" ? "#14AE5C" : s === "REJECTED" ? "#EC221F" : "#F59E0B";
+              return <span style={{ color, fontWeight: 600 }}>{s === "ASSIGNED" ? "Assigned" : s === "REJECTED" ? "Rejected" : "Pending"}</span>;
+            }}
+          />
           <Table.Column dataIndex="createdAt" title={"Request Date"} />
           <Table.Column
             width={"100px"}

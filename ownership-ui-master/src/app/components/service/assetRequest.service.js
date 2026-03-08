@@ -110,3 +110,37 @@ export const createRequest = async (token,data) => {
     const {payload} = await res.json();
     return payload;
 }
+
+/** Admin: approve request by creating asset on blockchain (assign to requester) and marking request ASSIGNED. */
+export const approveAndCreateAsset = async (token, requestId) => {
+    const header = await reqHeader(token);
+    const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/v1/admin/assetRequest/${requestId}/approveAndCreateAsset`,
+        { method: "POST", headers: header }
+    );
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.message || `Failed to approve and create asset: ${res.status}`);
+    }
+    const { payload } = await res.json();
+    return payload;
+};
+
+/** Admin: set request status to ASSIGNED or REJECTED. assignedAssetId optional when status is ASSIGNED. */
+export const updateRequestStatus = async (token, requestId, { status, assignedAssetId }) => {
+    const header = await reqHeader(token);
+    const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/v1/admin/assetRequest/${requestId}/status`,
+        {
+            method: "PUT",
+            headers: header,
+            body: JSON.stringify({ status, assignedAssetId: assignedAssetId || null }),
+        }
+    );
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.message || `Failed to update status: ${res.status}`);
+    }
+    const { payload } = await res.json();
+    return payload;
+}

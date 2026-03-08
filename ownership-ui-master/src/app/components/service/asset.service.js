@@ -8,7 +8,7 @@ export const getAllAsset = async (token) => {
 
         const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/user/getAllAsset`, {
             headers: header,
-            cache: "force-cache",
+            cache: "no-store",
             next: { tag: ["getAllAsset"] },
         });
         console.log("res", res)
@@ -22,33 +22,45 @@ export const getAllAsset = async (token) => {
 };
 
 
-export const createAsset = async (token,data) => {
+export const createAsset = async (token, data) => {
     const header = await reqHeader(token);
     const { assetName, qty, unit, condition, attachment, assignTo } = data;
     const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/admin/createAsset`, {
         method: "POST",
         headers: header,
         body: JSON.stringify({
-            assetName,qty,unit, condition, attachment, assignTo
-        })},
-        {next: { tag: ["createAsset"] },}
-    );
-    if(res.status === 200){
-        Toastify({
-            text: "Create asset successfull!!!",
-            className: "success-toast",
-        }).showToast();
+            assetName,
+            qty,
+            unit,
+            condition,
+            attachment,
+            assignTo: assignTo != null ? Number(assignTo) : undefined,
+        }),
+    }, { next: { tag: ["createAsset"] } });
+    const text = await res.text();
+    let payload;
+    try {
+        payload = text ? JSON.parse(text) : {};
+    } catch {
+        payload = {};
     }
-    console.log("createAsset",res)
-    const payload = await res.json();
-    console.log("payloy creat", payload)
-    return payload
-}
+    if (!res.ok) {
+        let msg = payload?.detail || payload?.message;
+        if (!msg && typeof payload === 'object' && Object.keys(payload).length > 0)
+            msg = Object.values(payload)[0] || Object.entries(payload).map(([k, v]) => `${k}: ${v}`).join(', ');
+        throw new Error(msg || `Create asset failed (${res.status})`);
+    }
+    Toastify({
+        text: "Create asset successful!",
+        className: "success-toast",
+    }).showToast();
+    return payload;
+};
 
 export const getAsset = async (token,assetId) => {
     const header = await reqHeader(token);
     try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/user/getAsset/{id}?id=${assetId}`, {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/user/getAsset/${assetId}`, {
             method: "GET",
             headers: header,
             next: { tag: ["getAsset"] },

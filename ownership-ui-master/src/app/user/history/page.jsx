@@ -9,7 +9,7 @@ import {
   useTable,
 } from "@refinedev/antd";
 import { BaseRecord, useGetIdentity } from "@refinedev/core";
-import { Col, Input, Menu, Row, Space, Table } from "antd";
+import { Col, Input, Menu, Row, Space, Table, Tooltip } from "antd";
 import { Avatar, Typography, Dropdown, Button } from "antd";
 import "../../../styles/globals.css"
 import { useEffect, useState } from "react";
@@ -24,7 +24,7 @@ import Image from "next/image";
 import { getHistory } from "../../components/service/history.service";
 import { useSession } from "next-auth/react";
 import Loading from "../../components/components/Loading";
-import { formatDateBC } from "../../utils/formatDate";
+import { formatDateBCWithTime } from "../../utils/formatDate";
 // import CreateDepartment from "../components/components/CreateDepartment";
 export default function History() {
 
@@ -160,7 +160,7 @@ export default function History() {
         id: id + 1,
         assetName: asset.asset_name,
         attachment: asset.attachment,
-        created_at: formatDateBC(asset.created_at),
+        created_at: formatDateBCWithTime(asset.created_at),
         department: asset.assignTo?.department || "Unknown",
       }));
       setHistory(formattedHistory)
@@ -206,13 +206,28 @@ export default function History() {
               </div>
             </div>
             <Table dataSource={filteredHistory}
-              rowKey="id"
+              rowKey={(r) => r.id ?? r.tx_id ?? r.asset_id ?? Math.random()}
               pagination={{
                 ...paginationConfig,
                 total: totalItems,
               }}
             >
               <Table.Column dataIndex="id" title={"No"} width={"10px"} />
+              <Table.Column
+                dataIndex="tx_id"
+                title={"Tx ID"}
+                width={120}
+                render={(txId, record) => {
+                  const short = (txId && String(txId).slice(0, 12)) || "—";
+                  const prev = record.previous_tx_id ? String(record.previous_tx_id).slice(0, 12) : "—";
+                  const creation = record.creation_tx_id ? String(record.creation_tx_id).slice(0, 12) : "—";
+                  return (
+                    <Tooltip title={<span style={{ whiteSpace: "pre-wrap" }}>{`This: ${txId || "—"}\nPrevious: ${record.previous_tx_id ?? "—"}\nCreation: ${record.creation_tx_id ?? "—"}`}</span>}>
+                      <span className="text-xs font-mono text-[#4B68FF]" title={txId}>{short}{txId && txId.length > 12 ? "…" : ""}</span>
+                    </Tooltip>
+                  );
+                }}
+              />
               <Table.Column
                 dataIndex="assetName"
                 title={"Asset Name"}

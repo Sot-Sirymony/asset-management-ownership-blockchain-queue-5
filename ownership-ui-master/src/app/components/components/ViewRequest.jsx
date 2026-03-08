@@ -1,12 +1,59 @@
-export default function ViewRequestAsset({ onClose, record }) {
-    const handleApprove = () => {
-        console.log("Approved:", record);
-        // Add your approve logic here
+"use client";
+
+import React, { useState } from "react";
+import Link from "next/link";
+import Toastify from "toastify-js";
+import "toastify-js/src/toastify.css";
+import { updateRequestStatus, approveAndCreateAsset } from "../service/assetRequest.service";
+
+export default function ViewRequestAsset({ onClose, record, token, onStatusUpdated }) {
+    const [assignedAssetId, setAssignedAssetId] = useState("");
+    const [loading, setLoading] = useState(false);
+    const isAdmin = !!token;
+
+    const handleMarkAssigned = async () => {
+        if (!token) return;
+        setLoading(true);
+        try {
+            await updateRequestStatus(token, record.requestId, {
+                status: "ASSIGNED",
+                assignedAssetId: assignedAssetId.trim() || null,
+            });
+            Toastify({ text: "Request marked as Assigned", className: "success-toast" }).showToast();
+            onStatusUpdated?.();
+        } catch (e) {
+            Toastify({ text: e?.message || "Failed to update status", className: "error-toast", style: { background: "#dc2626" } }).showToast();
+        } finally {
+            setLoading(false);
+        }
     };
 
-    const handleReject = () => {
-        console.log("Rejected:", record);
-        // Add your reject logic here
+    const handleReject = async () => {
+        if (!token) return;
+        setLoading(true);
+        try {
+            await updateRequestStatus(token, record.requestId, { status: "REJECTED" });
+            Toastify({ text: "Request rejected", className: "success-toast" }).showToast();
+            onStatusUpdated?.();
+        } catch (e) {
+            Toastify({ text: e?.message || "Failed to reject", className: "error-toast", style: { background: "#dc2626" } }).showToast();
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleApproveAndCreateAsset = async () => {
+        if (!token) return;
+        setLoading(true);
+        try {
+            await approveAndCreateAsset(token, record.requestId);
+            Toastify({ text: "Asset created on blockchain and request marked as Assigned", className: "success-toast" }).showToast();
+            onStatusUpdated?.();
+        } catch (e) {
+            Toastify({ text: e?.message || "Failed to create asset on blockchain", className: "error-toast", style: { background: "#dc2626" } }).showToast();
+        } finally {
+            setLoading(false);
+        }
     };
 
     if (!record) return null;
@@ -131,6 +178,32 @@ export default function ViewRequestAsset({ onClose, record }) {
                                     readOnly
                                 ></textarea>
                             </div>
+                            <div className="mb-3">
+                                <label className="block mb-2 text-sm font-medium text-[#344054]">Status</label>
+                                <span
+                                    className="inline-block px-2 py-1 rounded text-sm font-semibold"
+                                    style={{
+                                        color: (record.status || "PENDING") === "ASSIGNED" ? "#14AE5C" : (record.status || "PENDING") === "REJECTED" ? "#EC221F" : "#F59E0B",
+                                        background: (record.status || "PENDING") === "ASSIGNED" ? "#d1fae5" : (record.status || "PENDING") === "REJECTED" ? "#fee2e2" : "#fef3c7",
+                                    }}
+                                >
+                                    {(record.status || "PENDING") === "ASSIGNED" ? "Assigned" : (record.status || "PENDING") === "REJECTED" ? "Rejected" : "Pending"}
+                                </span>
+                                {record.assignedAssetId && (
+                                    <span className="ml-2 text-xs text-gray-500">Asset ID: {record.assignedAssetId}</span>
+                                )}
+                                {isAdmin && (record.status || "PENDING") === "ASSIGNED" && record.assignedAssetId && (
+                                    <div className="mt-2">
+                                        <Link
+                                            href={`/admin/asset/show/${encodeURIComponent(record.assignedAssetId)}`}
+                                            className="text-sm font-medium text-[#4B68FF] hover:underline"
+                                            onClick={() => onClose?.()}
+                                        >
+                                            View this asset in Asset section →
+                                        </Link>
+                                    </div>
+                                )}
+                            </div>
                             <div className="mb-10">
                                 <label
                                     htmlFor="attachment"
@@ -144,6 +217,44 @@ export default function ViewRequestAsset({ onClose, record }) {
                                     className="rounded-md w-full"
                                 />
                             </div>
+                            {isAdmin && (record.status || "PENDING") === "PENDING" && (
+                                <div className="flex flex-col gap-3 pt-2 border-t">
+                                    <div className="flex flex-wrap gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={handleApproveAndCreateAsset}
+                                            disabled={loading}
+                                            className="px-4 py-2 rounded-lg text-white font-medium bg-[#4B68FF] hover:bg-[#3b58ef] disabled:opacity-50"
+                                        >
+                                            {loading ? "..." : "Approve & Create Asset (blockchain)"}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleReject}
+                                            disabled={loading}
+                                            className="px-4 py-2 rounded-lg text-white font-medium bg-[#EC221F] hover:bg-[#c41c19] disabled:opacity-50"
+                                        >
+                                            {loading ? "..." : "Reject"}
+                                        </button>
+                                    </div>
+                                    <p className="text-xs text-gray-500">For the user to see the asset in <strong>User → Asset</strong>, use &quot;Approve & Create Asset (blockchain)&quot; above. Or mark as assigned only (status in DB; no new asset on chain):</p>
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. AST-xxx (optional)"
+                                        className="bg-[#F8FAFC] text-gray-900 text-sm rounded-lg block w-full p-2.5 border"
+                                        value={assignedAssetId}
+                                        onChange={(e) => setAssignedAssetId(e.target.value)}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={handleMarkAssigned}
+                                        disabled={loading}
+                                        className="px-4 py-2 rounded-lg text-white font-medium bg-[#14AE5C] hover:bg-[#0d8a47] disabled:opacity-50 w-fit"
+                                    >
+                                        {loading ? "..." : "Mark as Assigned only"}
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>

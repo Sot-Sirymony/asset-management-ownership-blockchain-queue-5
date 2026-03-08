@@ -19,7 +19,10 @@ public interface AssetRequestRepository {
                         one = @One(select = "com.up.asset_holder_api.repository.UserRepository.findUserById")
                     ),
                     @Result(property = "assetName", column = "asset_name"),
-                    @Result(property = "createdAt", column = "created_at")
+                    @Result(property = "createdAt", column = "created_at"),
+                    @Result(property = "status", column = "status"),
+                    @Result(property = "assignedAssetId", column = "assigned_asset_id"),
+                    @Result(property = "resolvedAt", column = "resolved_at")
             }
     )
     List<AssetRequest> findAllUserAssetRequest();
@@ -67,4 +70,12 @@ public interface AssetRequestRepository {
     @Delete("DELETE FROM asset_request WHERE request_id = #{id} AND user_id = #{userId}")
     Boolean deleteUserAsset(Integer id, Integer userId);
 
+    //-----------------admin update request status (ASSIGNED / REJECTED)----------------
+    @Update("""
+            UPDATE asset_request SET status = #{status}, assigned_asset_id = #{assignedAssetId},
+                   resolved_at = CASE WHEN #{status} IN ('ASSIGNED', 'REJECTED') THEN CURRENT_TIMESTAMP ELSE resolved_at END
+            WHERE request_id = #{requestId}
+            """)
+    int updateRequestStatus(@Param("requestId") Integer requestId, @Param("status") String status,
+                            @Param("assignedAssetId") String assignedAssetId);
 }

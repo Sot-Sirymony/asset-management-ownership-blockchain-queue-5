@@ -33,5 +33,8 @@ CREATE TABLE IF NOT EXISTS asset_request (
     qty INT,
     unit VARCHAR(50),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    attachment TEXT
+    attachment TEXT,
+    status VARCHAR(20) DEFAULT 'PENDING',
+    assigned_asset_id VARCHAR(255),
+    resolved_at TIMESTAMP
 );

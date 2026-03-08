@@ -1,11 +1,14 @@
 package com.up.asset_holder_api.controller;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.up.asset_holder_api.model.entity.AssetRequest;
 import com.up.asset_holder_api.model.request.AssetRequestRes;
+import com.up.asset_holder_api.model.request.UpdateRequestStatusRequest;
 import com.up.asset_holder_api.model.response.ApiResponse;
 import com.up.asset_holder_api.service.AssetRequestService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import jakarta.validation.Valid;
 import lombok.AllArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -81,6 +84,32 @@ public class AssetReqeustController {
         ApiResponse<Boolean> res = ApiResponse.<Boolean>builder()
                 .message("Success")
                 .payload(assetRequestService.deleteUserAsset(id))
+                .timestamp(new Timestamp(System.currentTimeMillis()))
+                .httpStatus(HttpStatus.OK)
+                .build();
+        return ResponseEntity.ok(res);
+    }
+
+    @PutMapping("/admin/assetRequest/{id}/status")
+    @Operation(summary = "Admin set request status to ASSIGNED or REJECTED (for tracking)")
+    public ResponseEntity<ApiResponse<AssetRequest>> updateRequestStatus(
+            @PathVariable Integer id,
+            @Valid @RequestBody UpdateRequestStatusRequest request) {
+        ApiResponse<AssetRequest> res = ApiResponse.<AssetRequest>builder()
+                .message("Success")
+                .payload(assetRequestService.updateRequestStatus(id, request))
+                .timestamp(new Timestamp(System.currentTimeMillis()))
+                .httpStatus(HttpStatus.OK)
+                .build();
+        return ResponseEntity.ok(res);
+    }
+
+    @PostMapping("/admin/assetRequest/{id}/approveAndCreateAsset")
+    @Operation(summary = "Admin approve request: create asset on blockchain (assign to requester) and mark request ASSIGNED")
+    public ResponseEntity<ApiResponse<JsonNode>> approveAndCreateAsset(@PathVariable Integer id) {
+        ApiResponse<JsonNode> res = ApiResponse.<JsonNode>builder()
+                .message("Success")
+                .payload(assetRequestService.approveAndCreateAsset(id))
                 .timestamp(new Timestamp(System.currentTimeMillis()))
                 .httpStatus(HttpStatus.OK)
                 .build();

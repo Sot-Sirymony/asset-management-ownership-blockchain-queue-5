@@ -67,6 +67,7 @@ This frees **ports 3000** (UI) and **8081** (API) and prints whether each port w
 | **Cannot start UI or API** | Previous run left processes on 3000/8081 | `./after-test.sh` |
 | **Docker containers still up** | API/Postgres started via `start-api-frontend.sh` or compose | `./after-test.sh --docker` or `./stop-all-projects.sh` |
 | **Leftover test output** (screenshots, traces) | Playwright wrote to `test-results/` or `playwright-report/` | `./after-test.sh --artifacts` |
+| **"Blockchain orderer unreachable"** / **"Failed to send transaction to the orderer"** (Create Asset) | API was started without `FABRIC_ORDERER_URL` (e.g. from IDE) or orderer not running | From repo root: `./restart-api-for-blockchain.sh` — stops API on 8081, then runs `./start-all-projects.sh` so the API starts with the orderer. Ensure the blockchain network is up first (script starts it). |
 
 ---
 
@@ -101,3 +102,7 @@ To also reset blockchain and clean build caches:
 ```bash
 ./reset-all.sh
 ```
+
+
+
+lsof -ti :8081 | xargs kill

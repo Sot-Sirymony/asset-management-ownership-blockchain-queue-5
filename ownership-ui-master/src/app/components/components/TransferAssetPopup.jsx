@@ -5,7 +5,7 @@ import { getAllUser } from '../service/user.service'
 import { useSession } from 'next-auth/react';
 import { transferAsset } from '../service/asset.service';
 import Loading from './Loading';
-export default function TransferAssetPopup({ onClose, assetId, currentOwnerId }) {
+export default function TransferAssetPopup({ onClose, assetId, currentOwnerId, onTransferSuccess }) {
     // const { id } = useParams();
     const { data: session } = useSession();
     const token = session?.accessToken;
@@ -37,8 +37,11 @@ export default function TransferAssetPopup({ onClose, assetId, currentOwnerId })
         }
         const transfer = await transferAsset(token,updatedData,assetId)
         console.log("transfer", transfer)
+        if (transfer === true) {
+          onTransferSuccess?.()
+        }
        }catch (error) {
-        console.error("Failed to fetch assets:", error);
+        console.error("Failed to transfer asset:", error);
       } finally {
         setLoading(false)
       }
@@ -122,7 +125,7 @@ export default function TransferAssetPopup({ onClose, assetId, currentOwnerId })
                                 <button onClick={onClose} type="button" class="text-[#344054] bg-white font-semibold border-[1px]  focus:ring-4 focus:ring-red-300  rounded-lg text-sm inline-flex items-center px-5 py-2.5 text-center">
                                     Cancel
                                 </button>
-                                <button disabled={loading} onClick={handleTransfer} type="button" class="py-2.5 px-5 ms-3 text-sm font-semibold text-white focus:outline-none bg-[#14AE5C] rounded-lg border border-gray-200 dark:focus:ring-gray-700 dark:bg-gray-800 dark:text-gray-400">Transfer</button>
+                                <button disabled={loading || !selectedUser} onClick={handleTransfer} type="button" class="py-2.5 px-5 ms-3 text-sm font-semibold text-white focus:outline-none bg-[#14AE5C] rounded-lg border border-gray-200 disabled:opacity-50 disabled:cursor-not-allowed dark:focus:ring-gray-700 dark:bg-gray-800 dark:text-gray-400">Transfer</button>
                             </div>
                         </div>
                     </div>

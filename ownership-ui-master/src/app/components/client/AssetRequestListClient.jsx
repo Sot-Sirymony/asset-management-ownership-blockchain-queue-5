@@ -115,6 +115,7 @@ export default function AssetRequestListClient() {
           email: request.user?.email || "user@example.com",
           profileImg: request.user?.profileImg || "/default-avatar.png",
           department: request.user?.department?.dep_name || "Unknown Department",
+          status: request.status || "PENDING",
         }));
         setAssetRequest(formattedDepartments);
         applyFilters(formattedDepartments, searchText, filterCriteria);
@@ -263,45 +264,57 @@ export default function AssetRequestListClient() {
           />
           <Table.Column dataIndex="createdAt" title={"Request Date"} />
           <Table.Column
-            width={"100px"}
+            dataIndex="status"
+            title={"Status"}
+            width={"120px"}
+            render={(status) => {
+              const s = (status || "PENDING").toUpperCase();
+              const color = s === "ASSIGNED" ? "#14AE5C" : s === "REJECTED" ? "#EC221F" : "#F59E0B";
+              return <span style={{ color, fontWeight: 600 }}>{s === "ASSIGNED" ? "Assigned" : s === "REJECTED" ? "Rejected" : "Pending"}</span>;
+            }}
+          />
+          <Table.Column
+            width={"140px"}
             align="center"
             title={"Action"}
             dataIndex="action"
             render={(_, record) => (
               <Space>
-                <button
-                  onClick={() => handleViewClick(record)}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer",
-                  }}
-                >
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 25"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
+                <Tooltip title="View details">
+                  <button
+                    onClick={() => handleViewClick(record)}
+                    style={{ background: "none", border: "none", cursor: "pointer" }}
                   >
-                    <path
-                      d="M2.9095 13.7126C2.56793 12.9695 2.56793 12.1122 2.9095 11.3691C4.4906 7.92927 7.96659 5.54085 12.0004 5.54085C16.0343 5.54085 19.5102 7.92928 21.0913 11.3691C21.4329 12.1122 21.4329 12.9695 21.0913 13.7126C19.5102 17.1524 16.0343 19.5408 12.0004 19.5408C7.96659 19.5408 4.4906 17.1524 2.9095 13.7126Z"
-                      stroke="#5B636D"
-                      strokeWidth="2"
-                    />
-                    <path
-                      d="M15.0004 12.5408C15.0004 14.1977 13.6573 15.5408 12.0004 15.5408C10.3436 15.5408 9.00042 14.1977 9.00042 12.5408C9.00042 10.884 10.3436 9.54085 12.0004 9.54085C13.6573 9.54085 15.0004 10.884 15.0004 12.5408Z"
-                      stroke="#5B636D"
-                      strokeWidth="2"
-                    />
-                  </svg>
-                </button>
+                    <svg width="20" height="20" viewBox="0 0 24 25" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M2.9095 13.7126C2.56793 12.9695 2.56793 12.1122 2.9095 11.3691C4.4906 7.92927 7.96659 5.54085 12.0004 5.54085C16.0343 5.54085 19.5102 7.92928 21.0913 11.3691C21.4329 12.1122 21.4329 12.9695 21.0913 13.7126C19.5102 17.1524 16.0343 19.5408 12.0004 19.5408C7.96659 19.5408 4.4906 17.1524 2.9095 13.7126Z" stroke="#5B636D" strokeWidth="2" />
+                      <path d="M15.0004 12.5408C15.0004 14.1977 13.6573 15.5408 12.0004 15.5408C10.3436 15.5408 9.00042 14.1977 9.00042 12.5408C9.00042 10.884 10.3436 9.54085 12.0004 9.54085C13.6573 9.54085 15.0004 10.884 15.0004 12.5408Z" stroke="#5B636D" strokeWidth="2" />
+                    </svg>
+                  </button>
+                </Tooltip>
+                <Tooltip title="Edit: Assign or Reject">
+                  <button
+                    onClick={() => handleViewClick(record)}
+                    style={{ background: "none", border: "none", cursor: "pointer" }}
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 25" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M11 4.54085H4C3.46957 4.54085 2.96086 4.75156 2.58579 5.12663C2.21071 5.50171 2 6.01041 2 6.54085V20.5408C2 21.0713 2.21071 21.58 2.58579 21.9551C2.96086 22.3301 3.46957 22.5408 4 22.5408H18C18.5304 22.5408 19.0391 22.3301 19.4142 21.9551C19.7893 21.58 20 21.0713 20 20.5408V13.5408" stroke="#14AE5C" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      <path d="M18.5 3.04085C18.8978 2.64302 19.4374 2.41953 20 2.41953C20.5626 2.41953 21.1022 2.64302 21.5 3.04085C21.8978 3.43867 22.1213 3.97824 22.1213 4.54085C22.1213 5.10345 21.8978 5.64302 21.5 6.04085L12 15.5408L8 16.5408L9 12.5408L18.5 3.04085Z" stroke="#14AE5C" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                </Tooltip>
               </Space>
             )}
           />
         </Table>
       </div>
-      {isViewVisible && <ViewRequestAsset record={selectedRecord} onClose={closeView} />}
+      {isViewVisible && (
+        <ViewRequestAsset
+          record={selectedRecord}
+          onClose={closeView}
+          token={token}
+          onStatusUpdated={() => { setRefreshTrigger((t) => t + 1); closeView(); }}
+        />
+      )}
       {isfilterVisible && <Filter onClose={closeFilter} onSave={handleFilterSave}
       initialFilters={filterCriteria} />}
     </section>

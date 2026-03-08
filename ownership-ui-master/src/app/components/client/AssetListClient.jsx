@@ -323,6 +323,7 @@ export default function AssetListClient() {
                     assetId={selectedAssetId}
                     currentOwnerId={selectedOwnerId}
                     onClose={closeTransfer}
+                    onTransferSuccess={fetchAllAsset}
                 />
             )}
         </section>

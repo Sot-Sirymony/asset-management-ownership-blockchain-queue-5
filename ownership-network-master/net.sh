@@ -184,7 +184,7 @@ channel_and_join() {
     elif already_exists "$create_output" || echo "$create_output" | grep -Fq "error applying config update to existing channel"; then
       echo "Channel channel-org already exists; fetching latest block..."
       fetch_status=1
-      for attempt in 1 2 3 4 5; do
+      for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
         set +e
         fetch_output="$(peer channel fetch 0 /etc/hyperledger/fabric/channel-artifacts/channel-org.block \
           -o orderer.ownify.com:7050 \
@@ -197,8 +197,8 @@ channel_and_join() {
           break
         fi
         if echo "$fetch_output" | grep -Fq "SERVICE_UNAVAILABLE"; then
-          echo "Orderer not ready (attempt $attempt/5); waiting 5s..."
-          sleep 5
+          echo "Orderer not ready (attempt $attempt/12); waiting 10s..."
+          sleep 10
         else
           echo "$fetch_output"
           exit "$fetch_status"
@@ -259,6 +259,23 @@ deploy_cc() {
       cd /work/channel/deploy-chaincode
       chmod +x *.sh
       ./deploy-chaincode.sh
+    '
+}
+
+# Redeploy chaincode with new version (e.g. after chaincode changes like UpdatedAt)
+redeploy_cc() {
+  ensure_network
+  docker run --rm -t --network "$NET_NAME" \
+    -v "$ROOT_DIR":/work -w /work \
+    hyperledger/fabric-tools:2.5 \
+    bash -lc '
+      set -e
+      cd /work/channel/src/go
+      [ -f go.mod ] || go mod init chaincode
+      go mod tidy
+      cd /work/channel/deploy-chaincode
+      chmod +x *.sh
+      ./redeploy-chaincode.sh
     '
 }
 
@@ -327,6 +344,8 @@ case "$cmd" in
     wait_for_container_running "peer0.org1.ownify.com"
     wait_for_container_running "peer1.org1.ownify.com"
     wait_for_container_running "cli"
+    echo "⏳ Giving orderer time to be ready for channel operations..."
+    sleep 30
     channel_and_join
     deploy_cc
     up_explorer
@@ -336,13 +355,14 @@ case "$cmd" in
   up-fabric) up_fabric ;;
   channel) channel_and_join ;;
   deploy-cc) deploy_cc ;;
+  redeploy-cc) redeploy_cc ;;
   up-explorer) up_explorer ;;
   down) down ;;
   reset) reset ;;
   status) status ;;
   logs) shift; logs "${1:-}" ;;
   *)
-    echo "Usage: $0 {up|up-ca|gen-crypto|up-fabric|channel|deploy-cc|up-explorer|down|reset|status|logs explorer|logs ca}"
+    echo "Usage: $0 {up|up-ca|gen-crypto|up-fabric|channel|deploy-cc|redeploy-cc|up-explorer|down|reset|status|logs explorer|logs ca}"
     exit 1
     ;;
 esac

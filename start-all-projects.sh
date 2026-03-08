@@ -323,17 +323,18 @@ if [ -z "${WALLET_PATH:-}" ]; then
     echo -e "${GREEN}✅ Using WALLET_PATH: $WALLET_PATH${NC}"
 fi
 
-# Fabric crypto path and peer/orderer URLs when API runs on host (connection.yaml uses Docker paths/hostnames)
+# Fabric: use 127.0.0.1 (not localhost) for stable TLS/connect on Mac; absolute path so API finds crypto from any cwd
+CHANNEL_DIR="$NETWORK_DIR/channel"
 if [ -z "${FABRIC_CRYPTO_PATH:-}" ]; then
-    export FABRIC_CRYPTO_PATH="$NETWORK_DIR/channel"
+    export FABRIC_CRYPTO_PATH="$(cd "$ROOT_DIR" && cd "$CHANNEL_DIR" && pwd)"
     echo -e "${GREEN}✅ Using FABRIC_CRYPTO_PATH: $FABRIC_CRYPTO_PATH${NC}"
 fi
 if [ -z "${FABRIC_PEER_URL:-}" ]; then
-    export FABRIC_PEER_URL="grpcs://localhost:7051"
+    export FABRIC_PEER_URL="grpcs://127.0.0.1:7051"
     echo -e "${GREEN}✅ Using FABRIC_PEER_URL: $FABRIC_PEER_URL${NC}"
 fi
 if [ -z "${FABRIC_ORDERER_URL:-}" ]; then
-    export FABRIC_ORDERER_URL="grpcs://localhost:7050"
+    export FABRIC_ORDERER_URL="grpcs://127.0.0.1:7050"
     echo -e "${GREEN}✅ Using FABRIC_ORDERER_URL: $FABRIC_ORDERER_URL${NC}"
 fi
 if [ -z "${FABRIC_CHANNEL:-}" ]; then
@@ -365,6 +366,7 @@ fi
 # Check if already running
 if lsof -Pi :8081 -sTCP:LISTEN -t >/dev/null 2>&1 ; then
     echo -e "${YELLOW}⚠️  API already running on port 8081${NC}"
+    echo -e "${YELLOW}   If Assign Asset fails (orderer unreachable), stop the API and run: ./restart-api-for-blockchain.sh or run this script again.${NC}"
 else
     echo "Building API..."
     mvn clean compile -DskipTests > /dev/null 2>&1 || {
@@ -373,6 +375,7 @@ else
     }
     
     echo "Starting API backend..."
+    export OTEL_METRICS_EXPORTER=none
     mvn spring-boot:run > api.log 2>&1 &
     API_PID=$!
     echo "API PID: $API_PID"

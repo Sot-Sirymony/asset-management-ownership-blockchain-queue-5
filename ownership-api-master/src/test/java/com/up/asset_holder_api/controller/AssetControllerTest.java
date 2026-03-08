@@ -14,6 +14,7 @@ import com.up.asset_holder_api.service.AppUserService;
 import com.up.asset_holder_api.service.AssetService;
 import com.up.asset_holder_api.testsupport.SecurityTestSupport;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -163,6 +164,7 @@ class AssetControllerTest {
     }
 
     @Test
+    @DisplayName("Assign asset as admin - 200 OK")
     void createAsset_asAdmin_returnsOk() throws Exception {
         SecurityTestSupport.mockJwtAsAdmin(jwtUtil, appUserService);
         ObjectNode created = JsonNodeFactory.instance.objectNode();
@@ -178,6 +180,77 @@ class AssetControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.payload.asset_id").value("asset-new"))
                 .andExpect(jsonPath("$.payload.asset_name").value("New Laptop"));
+    }
+
+    // --- Assign asset (createAsset) test cases ---
+
+    @Test
+    @DisplayName("Assign asset without auth - 401")
+    void createAsset_unauthorized_returns401() throws Exception {
+        Asset asset = Asset.builder().assetName("Laptop").qty("1").assignTo(1).build();
+        mockMvc.perform(post("/api/v1/admin/createAsset")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(asset)))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("Assign asset without assignTo - 400")
+    void createAsset_withoutAssignTo_returnsBadRequest() throws Exception {
+        SecurityTestSupport.mockJwtAsAdmin(jwtUtil, appUserService);
+        Asset asset = Asset.builder().assetName("Laptop").qty("1").build();
+        mockMvc.perform(post("/api/v1/admin/createAsset")
+                        .header("Authorization", "Bearer " + SecurityTestSupport.GOOD_TOKEN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(asset)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("Assign asset with assignTo zero - 400")
+    void createAsset_withAssignToZero_returnsBadRequest() throws Exception {
+        SecurityTestSupport.mockJwtAsAdmin(jwtUtil, appUserService);
+        Asset asset = Asset.builder().assetName("Laptop").qty("1").assignTo(0).build();
+        mockMvc.perform(post("/api/v1/admin/createAsset")
+                        .header("Authorization", "Bearer " + SecurityTestSupport.GOOD_TOKEN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(asset)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("Assign asset with blank assetName - 400")
+    void createAsset_withBlankAssetName_returnsBadRequest() throws Exception {
+        SecurityTestSupport.mockJwtAsAdmin(jwtUtil, appUserService);
+        Asset asset = Asset.builder().assetName("").qty("1").assignTo(1).build();
+        mockMvc.perform(post("/api/v1/admin/createAsset")
+                        .header("Authorization", "Bearer " + SecurityTestSupport.GOOD_TOKEN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(asset)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("Assign asset with blank qty - 400")
+    void createAsset_withBlankQty_returnsBadRequest() throws Exception {
+        SecurityTestSupport.mockJwtAsAdmin(jwtUtil, appUserService);
+        Asset asset = Asset.builder().assetName("Laptop").qty("").assignTo(1).build();
+        mockMvc.perform(post("/api/v1/admin/createAsset")
+                        .header("Authorization", "Bearer " + SecurityTestSupport.GOOD_TOKEN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(asset)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("Assign asset as non-admin - 403")
+    void createAsset_asNonAdmin_returnsForbidden() throws Exception {
+        Asset asset = Asset.builder().assetName("Laptop").qty("1").assignTo(1).build();
+        mockMvc.perform(post("/api/v1/admin/createAsset")
+                        .header("Authorization", "Bearer " + SecurityTestSupport.GOOD_TOKEN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(asset)))
+                .andExpect(status().isForbidden());
     }
 
     @Test

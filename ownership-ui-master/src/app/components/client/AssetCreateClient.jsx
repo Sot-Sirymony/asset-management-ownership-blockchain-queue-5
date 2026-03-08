@@ -11,6 +11,8 @@ import { useSession } from "next-auth/react";
 import { uploadImages } from "../service/file.service";
 import { addAsset } from "../action/AssetAction";
 import Loading from "../components/Loading";
+import Toastify from "toastify-js";
+import "toastify-js/src/toastify.css";
 
 export default function CategoryCreateClient() {
     const router = useRouter();
@@ -30,31 +32,44 @@ export default function CategoryCreateClient() {
     const handleChange = ({ fileList }) => setFileList(fileList);
 
     const onFinish = async (values) => {
-        setLoading(true); 
+        setLoading(true);
         try {
+            let attachmentUrl = null;
             const file = fileList[0]?.originFileObj;
-            const formData = new FormData();
-            formData.append("file", file);
-
-            Object.keys(values).forEach((key) => {
-                formData.append(key, values[key]);
-            });
-
-            const res = await uploadImages(formData);
+            if (file) {
+                const formData = new FormData();
+                formData.append("file", file);
+                Object.keys(values).forEach((key) => {
+                    formData.append(key, values[key]);
+                });
+                const res = await uploadImages(formData);
+                if (res?.payload?.fileUrl) {
+                    attachmentUrl = res.payload.fileUrl;
+                }
+            }
             const newAsset = {
                 assetName: values.assetName,
                 qty: values.qty,
                 unit: values.unit,
                 condition: values.condition,
-                attachment: res.payload.fileUrl,
-                assignTo: values.assignTo,
+                attachment: attachmentUrl,
+                assignTo: values.assignTo != null ? Number(values.assignTo) : undefined,
             };
             await addAsset(token, newAsset);
             router.push("/admin/asset");
         } catch (error) {
             console.error("Error saving asset:", error);
+            let message = error?.message || "Failed to create asset.";
+            if (message.includes("orderer") || message.includes("send transaction") || message.includes("transaction to the orderer")) {
+                message = "Blockchain orderer unreachable. Start the network (e.g. ./start-all-projects.sh), ensure FABRIC_ORDERER_URL is set, then restart the API on port 8081.";
+            }
+            Toastify({
+                text: message,
+                className: "error-toast",
+                style: { background: "#dc2626", maxWidth: "380px" },
+            }).showToast();
         } finally {
-            setLoading(false); 
+            setLoading(false);
         }
     };
 
@@ -169,11 +184,7 @@ export default function CategoryCreateClient() {
                             </Form.Item> */}
 
                             <Form.Item
-                                label={<span style={{ color: "#344054" }}>Attachment</span>}
-                                rules={[{
-                                    required: true,
-                                    message: "Please upload an image"
-                                }]}
+                                label={<span style={{ color: "#344054" }}>Attachment (optional)</span>}
                                 name="attachment"
                             >
                                 <Upload.Dragger
@@ -184,7 +195,6 @@ export default function CategoryCreateClient() {
                                     onChange={({ fileList }) => {
                                         setFileList(fileList.slice(-1));
                                     }}
-                                    required
                                     maxCount={1}
                                     beforeUpload={() => false}
                                     className="flex flex-col justify-center items-center"

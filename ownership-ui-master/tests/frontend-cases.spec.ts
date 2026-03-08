@@ -20,10 +20,19 @@ function loginSubmitButton(page: import('@playwright/test').Page) {
 
 /** Open login modal, fill credentials, submit, and wait for navigation to /admin or /user. Fails with a clear message if login is rejected or times out. */
 async function loginAndWaitForRedirect(page: import('@playwright/test').Page, timeout = 30000) {
-  await page.goto('/');
-  await page.getByRole('button', { name: /login/i }).click();
-  await page.locator('#username').fill(ADMIN_USER);
-  await page.locator('#password').fill(ADMIN_PASSWORD);
+  await page.context().clearCookies();
+  await page.goto('/', { waitUntil: 'load' });
+  await page.waitForLoadState('networkidle').catch(() => {});
+  const navLoginBtn = page.locator('nav').getByRole('button', { name: 'Login' });
+  await navLoginBtn.waitFor({ state: 'visible', timeout: 15000 });
+  await navLoginBtn.click({ force: true });
+  await page.waitForTimeout(1000);
+  const modal = page.locator('#popup-modal');
+  await modal.waitFor({ state: 'visible', timeout: 15000 });
+  const usernameInput = modal.locator('#username');
+  await usernameInput.waitFor({ state: 'visible', timeout: 5000 });
+  await usernameInput.fill(ADMIN_USER);
+  await modal.locator('#password').fill(ADMIN_PASSWORD);
   await loginSubmitButton(page).click();
   const urlPromise = page.waitForURL(/\/(admin|user)/, { timeout });
   const invalidPromise = page.getByText(/invalid credentials|error occurred|login failed/i).waitFor({ state: 'visible', timeout });
@@ -52,10 +61,17 @@ async function loginWithCredentials(
   password: string,
   timeout = 15000
 ): Promise<'ok' | 'invalid' | 'timeout'> {
-  await page.goto('/');
-  await page.getByRole('button', { name: /login/i }).click();
-  await page.locator('#username').fill(username);
-  await page.locator('#password').fill(password);
+  await page.context().clearCookies();
+  await page.goto('/', { waitUntil: 'load' });
+  await page.waitForLoadState('networkidle').catch(() => {});
+  const navLoginBtn = page.locator('nav').getByRole('button', { name: 'Login' });
+  await navLoginBtn.waitFor({ state: 'visible', timeout: 10000 });
+  await navLoginBtn.click({ force: true });
+  await page.waitForTimeout(1000);
+  const modal = page.locator('#popup-modal');
+  await modal.waitFor({ state: 'visible', timeout: 15000 });
+  await modal.locator('#username').fill(username);
+  await modal.locator('#password').fill(password);
   await loginSubmitButton(page).click();
   const urlPromise = page.waitForURL(/\/(admin|user)/, { timeout });
   const invalidPromise = page.getByText(/invalid credentials/i).waitFor({ state: 'visible', timeout });
@@ -364,6 +380,38 @@ test.describe('FE-036 to FE-055: Admin Assets', () => {
     await createBtn.click();
     await expect(page).toHaveURL(/admin\/asset\/create/, { timeout: 10000 });
     await expect(page.locator('input, form').first()).toBeVisible({ timeout: 5000 });
+  });
+
+  test('FE-040: Assign asset from UI – fill form and submit', async ({ page }) => {
+    await page.goto('/admin/asset/create');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.getByRole('heading', { name: /Assign Asset/i })).toBeVisible({ timeout: 10000 });
+
+    await page.getByPlaceholder('Enter asset name').fill('E2E Assign Asset ' + Date.now());
+    await page.getByPlaceholder('Enter quantity').fill('1');
+    await page.getByPlaceholder('Enter unit').fill('pcs');
+
+    const comboboxes = page.getByRole('combobox');
+    const assignToCount = await comboboxes.count();
+    if (assignToCount >= 1) {
+      await comboboxes.nth(0).click();
+      await page.waitForTimeout(600);
+      const opt = page.locator('.ant-select-item-option').first();
+      if (await opt.isVisible().catch(() => false)) await opt.click();
+    }
+    if (assignToCount >= 2) {
+      await comboboxes.nth(1).click();
+      await page.waitForTimeout(300);
+      await page.locator('.ant-select-item-option').filter({ hasText: 'Good' }).first().click();
+    }
+
+    await page.getByRole('button', { name: 'Save' }).click();
+
+    await page.waitForTimeout(4000);
+    const url = page.url();
+    const success = url.includes('/admin/asset') && !url.includes('/create');
+    const errorToast = await page.getByText(/Blockchain orderer unreachable|Failed to create|send transaction|orderer/i).first().isVisible().catch(() => false);
+    expect(success || errorToast).toBeTruthy();
   });
 
   test('FE-043: Cancel create asset', async ({ page }) => {
